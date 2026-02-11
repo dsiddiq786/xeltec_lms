@@ -136,12 +136,32 @@ DO NOT:
     
     def _build_outline_prompt(self, request: CourseGenerationRequest) -> str:
         """Build the user prompt for outline generation."""
+        module_instruction = ""
+        if request.module_names:
+            module_instruction = f"""
+STRICT MODULE NAMES REQUIREMENT:
+You MUST use the following module titles in order:
+{json.dumps(request.module_names, indent=2)}
+If more modules are required than names provided, generate appropriate titles for the rest.
+If fewer modules are required, use only the first N names.
+"""
+
+        intro_instruction = ""
+        if request.include_standard_intro_slides:
+            intro_instruction = """
+STANDARD INTRO SLIDES REQUIREMENT:
+For the FIRST module of the FIRST level, you MUST include these 3 specific slides at the beginning:
+1. "Course Title & Welcome" (slide_title)
+2. "Learning Outcomes" (slide_title) - list 3-5 key outcomes
+3. "Module 1 Overview" (slide_title) - what this module covers
+"""
+
         return f"""Create a course outline for:
 
 COURSE DETAILS:
 - Title: {request.course_title}
 - Category: {request.category}
-- Level: {request.course_level}
+- Difficulty Level: {request.course_level} (Adjust tone and depth accordingly)
 - Regulatory Context: {request.regulatory_context or "General"}
 
 REQUIRED STRUCTURE (MUST FOLLOW EXACTLY):
@@ -149,6 +169,9 @@ REQUIRED STRUCTURE (MUST FOLLOW EXACTLY):
 - Modules per Level: {request.modules_per_level}
 - Slides per Module: {request.slides_per_module}
 - Total Slides: {request.total_slides}
+
+{module_instruction}
+{intro_instruction}
 
 OUTPUT FORMAT (JSON):
 {{
@@ -204,12 +227,26 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
                     module["module_order"] = module_idx + 1
                 
                 slide_titles = module.get("slide_titles", [])
-                if len(slide_titles) != request.slides_per_module:
-                    raise RuntimeError(
-                        f"Module {module_idx + 1} in Level {level_idx + 1} "
-                        f"has {len(slide_titles)} slides, "
-                        f"expected {request.slides_per_module}"
-                    )
+                
+                # Check for intro slides exception
+                expected_slides = request.slides_per_module
+                if (request.include_standard_intro_slides and 
+                    level_idx == 0 and module_idx == 0):
+                    # First module should have 3 extra slides
+                    if len(slide_titles) == expected_slides + 3:
+                        expected_slides += 3
+                    elif len(slide_titles) == expected_slides:
+                        # AI failed to add them, we might inject them later or warn
+                        pass
+
+                if len(slide_titles) != expected_slides:
+                    # Allow a little flexibility if AI added intro slides or not
+                    if not (request.include_standard_intro_slides and len(slide_titles) >= expected_slides):
+                         raise RuntimeError(
+                            f"Module {module_idx + 1} in Level {level_idx + 1} "
+                            f"has {len(slide_titles)} slides, "
+                            f"expected {expected_slides}"
+                        )
     
     # =========================================================================
     # Parallel Slide Generation with Incremental Saving

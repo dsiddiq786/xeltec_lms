@@ -122,7 +122,7 @@ async def update_course(
         pass
 
     # Save to DB
-    repo.update(existing_course)
+    repo.update(course_id, existing_course)
     
     return existing_course
 
@@ -283,5 +283,56 @@ async def upload_slide_audio(
     return MediaUploadResponse(
         slide_id=f"{level}-{module}-{slide}",
         media_type="audio",
+        url=relative_path
+    )
+
+@router.post(
+    "/courses/{course_id}/slides/video",
+    response_model=MediaUploadResponse,
+    summary="Upload/Replace slide video"
+)
+async def upload_slide_video(
+    course_id: str = Path(...),
+    level: int = Body(..., ge=1, embed=True),
+    module: int = Body(..., ge=1, embed=True),
+    slide: int = Body(..., ge=1, embed=True),
+    file: UploadFile = File(...)
+):
+    """Upload a new video file for a slide."""
+    repo = CourseRepository()
+    course = repo.get_by_id(course_id)
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+        
+    # Validation
+    if not file.content_type.startswith("video/"):
+        raise HTTPException(status_code=400, detail="File must be a video")
+
+    # Locate slide & directory
+    info = _get_slide_path_info(course, level, module, slide)
+    slide_obj = info["slide"]
+    slide_dir = info["slide_dir"]
+    
+    # Save file
+    filename = "video.mp4" # Force standard name
+    file_path = os.path.join(slide_dir, filename)
+    
+    os.makedirs(slide_dir, exist_ok=True)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    # Update DB relative path
+    storage = FileStorageService()
+    relative_path = storage.get_relative_path(file_path)
+    
+    # Update slide object
+    slide_obj.video_url = relative_path
+    slide_obj.asset_type = "video"
+    repo.update(course)
+    
+    return MediaUploadResponse(
+        slide_id=f"{level}-{module}-{slide}",
+        media_type="video",
         url=relative_path
     )

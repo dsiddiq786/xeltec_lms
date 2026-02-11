@@ -7,6 +7,7 @@
 # =============================================================================
 
 from pydantic import BaseModel, Field, field_validator
+from typing import Optional
 
 
 class CourseGenerationRequest(BaseModel):
@@ -109,6 +110,21 @@ class CourseGenerationRequest(BaseModel):
         le=100,
         description="Minimum score to pass the assessment (50-100%)"
     )
+
+    # -------------------------------------------------------------------------
+    # Advanced Options
+    # -------------------------------------------------------------------------
+    module_names: Optional[list[str]] = Field(
+        default=None,
+        max_length=50,
+        description="Optional list of specific module names to use"
+    )
+
+    include_standard_intro_slides: bool = Field(
+        default=False,
+        description="Whether to include standard intro slides (Title, Outcomes, Overview) at start"
+    )
+
     
     # -------------------------------------------------------------------------
     # Validators

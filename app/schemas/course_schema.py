@@ -59,6 +59,16 @@ class Slide(BaseModel):
         description="Path to the AI-generated image (local path or S3 URL)"
     )
     
+    video_url: Optional[str] = Field(
+        default=None,
+        description="Path to the uploaded video file (local path or S3 URL)"
+    )
+
+    asset_type: str = Field(
+        default="image",
+        description="Type of media asset: 'image' or 'video'"
+    )
+    
     voiceover_audio_url: Optional[str] = Field(
         default=None,
         description="Path to the AI-generated voiceover audio (local path or S3 URL)"

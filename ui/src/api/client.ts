@@ -105,4 +105,6 @@ export interface Slide {
     estimated_duration_sec: number;
     image_url: string | null;
     voiceover_audio_url: string | null;
+    video_url?: string | null;
+    asset_type?: 'image' | 'video';
 }
