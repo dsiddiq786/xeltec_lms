@@ -156,7 +156,22 @@ app.add_middleware(
 # =============================================================================
 
 # Register course generator routes
+# Register course generator routes
 app.include_router(course_generator_router)
+from app.api.course_editor_controller import router as course_editor_router
+app.include_router(course_editor_router)
+
+# =============================================================================
+# Static Files Configuration
+# =============================================================================
+from fastapi.staticfiles import StaticFiles
+
+# Serve generated course content (images/audio)
+# Frontend will access via /static/Generated_Courses/...
+# Ensure directory exists
+os.makedirs("Generated_Courses", exist_ok=True)
+app.mount("/static", StaticFiles(directory="Generated_Courses"), name="static")
+
 
 
 # =============================================================================
