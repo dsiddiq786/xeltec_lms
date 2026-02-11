@@ -13,6 +13,7 @@ from typing import Any, Optional, Callable
 from openai import AsyncOpenAI
 
 from app.schemas.request_schema import CourseGenerationRequest
+from app.services.cost_tracker import CostTracker
 from app.utils.duration import count_words, calculate_duration_from_words
 from app.utils.validators import (
     validate_voiceover_word_count,
@@ -44,11 +45,12 @@ class AsyncGenerationService:
     - Unified error handling
     """
     
-    def __init__(self):
-        """Initialize with async OpenAI client."""
+    def __init__(self, cost_tracker: Optional[CostTracker] = None):
+        """Initialize with async OpenAI client and optional cost tracker."""
         self._client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._model = os.getenv("OPENAI_MODEL", "gpt-4-turbo")
         self._semaphore = asyncio.Semaphore(MAX_CONCURRENT_SLIDES)
+        self._cost_tracker = cost_tracker
     
     # =========================================================================
     # Outline Generation
@@ -85,6 +87,15 @@ class AsyncGenerationService:
                 ],
                 response_format={"type": "json_object"}
             )
+            
+            # Track token usage
+            if self._cost_tracker and response.usage:
+                self._cost_tracker.add_text_generation(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    model=self._model,
+                    label="outline"
+                )
             
             content = response.choices[0].message.content
             if not content:
@@ -401,6 +412,16 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
                     max_completion_tokens=4000  # Large enough for comprehensive content
                 )
                 
+                # Track token usage
+                if self._cost_tracker and response.usage:
+                    slide_label = f"slide_{task_info.get('slide_title', 'unknown')[:30]}_content"
+                    self._cost_tracker.add_text_generation(
+                        prompt_tokens=response.usage.prompt_tokens,
+                        completion_tokens=response.usage.completion_tokens,
+                        model=self._model,
+                        label=slide_label
+                    )
+                
                 # Handle empty response
                 content = response.choices[0].message.content
                 if not content or not content.strip():
@@ -662,6 +683,15 @@ Generate complete, real content."""
                 response_format={"type": "json_object"},
                 max_completion_tokens=3000
             )
+            
+            # Track token usage
+            if self._cost_tracker and response.usage:
+                self._cost_tracker.add_text_generation(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    model=self._model,
+                    label="assessment"
+                )
             
             content = response.choices[0].message.content
             if not content:

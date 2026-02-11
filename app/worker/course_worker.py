@@ -38,9 +38,14 @@ from app.schemas.job_schema import JobStatus
 from app.schemas.course_schema import (
     Course, CourseLevel, CourseModule, Slide,
     Assessment, AssessmentQuestion,
-    CourseDocument, CourseMetadata, CourseConstraints
+    CourseDocument, CourseMetadata, CourseConstraints,
+    GenerationCosts
 )
 from app.services.async_generation_service import AsyncGenerationService
+from app.services.image_generation_service import ImageGenerationService
+from app.services.tts_service import TTSService
+from app.services.cost_tracker import CostTracker
+from app.services.file_storage_service import FileStorageService
 from app.utils.validators import validate_course_structure, validate_assessment, ValidationError
 from app.utils.duration import calculate_total_course_duration, format_duration
 
@@ -57,6 +62,9 @@ HEARTBEAT_INTERVAL = 10
 POLL_INTERVAL = 2
 CLEANUP_INTERVAL = 300  # 5 minutes
 MAX_MEMORY_MB = int(os.getenv("WORKER_MAX_MEMORY_MB", "1024"))
+
+# Thread pool for image and TTS generation
+MEDIA_THREAD_POOL_SIZE = int(os.getenv("MEDIA_THREAD_POOL_SIZE", "6"))
 
 
 class ResourceManager:
@@ -75,9 +83,11 @@ class ResourceManager:
         self._active_tasks: Set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
     
-    async def get_generation_service(self) -> AsyncGenerationService:
+    async def get_generation_service(
+        self, cost_tracker: Optional[CostTracker] = None
+    ) -> AsyncGenerationService:
         """Get or create a generation service with tracking."""
-        service = AsyncGenerationService()
+        service = AsyncGenerationService(cost_tracker=cost_tracker)
         self._generation_services.add(service)
         return service
     
@@ -125,6 +135,17 @@ class JobProcessor:
     Processes a single job with proper resource management.
     
     Each job gets its own processor instance to ensure isolation.
+    
+    ENHANCED PIPELINE:
+    1. Generate outline (text)
+    2. Create course folder structure
+    3. Generate slide content (text, parallel)
+    4. Generate images + TTS (multithreaded, parallel per slide)
+    5. Save all content to disk
+    6. Calculate durations
+    7. Generate assessment
+    8. Store in MongoDB with file paths + costs
+    9. Save cost report to disk
     """
     
     def __init__(
@@ -142,9 +163,28 @@ class JobProcessor:
         self.course_repo = CourseRepository()
         self.draft_repo = DraftRepository()
         
+        # Cost tracking for this job
+        self.cost_tracker = CostTracker()
+        
+        # File storage
+        self.file_storage = FileStorageService()
+        
+        # Media generation services (sync, run in thread pool)
+        self.image_service = ImageGenerationService()
+        self.tts_service = TTSService()
+        
+        # Thread pool for media generation (shared across slides)
+        self._media_executor = ThreadPoolExecutor(
+            max_workers=MEDIA_THREAD_POOL_SIZE,
+            thread_name_prefix="media"
+        )
+        
         # Will be created on demand
         self._generation_service: Optional[AsyncGenerationService] = None
         self._heartbeat_task: Optional[asyncio.Task] = None
+        
+        # Course directory path (set after outline generation)
+        self._course_dir: Optional[str] = None
     
     async def process(self) -> bool:
         """
@@ -178,15 +218,36 @@ class JobProcessor:
             # Start heartbeat
             self._heartbeat_task = asyncio.create_task(self._send_heartbeats())
             
-            # Get generation service
-            self._generation_service = await self.resource_manager.get_generation_service()
+            # Get generation service with cost tracker
+            self._generation_service = await self.resource_manager.get_generation_service(
+                cost_tracker=self.cost_tracker
+            )
             
-            # Generate course
+            # Generate course (full pipeline with media)
             course_id = await self._generate_course(request)
             
-            # Mark completed
-            self.job_repo.mark_completed(self.job_id, self.worker_id, course_id)
-            logger.info(f"[{self.worker_id}] Job {self.job_id} completed: {course_id}")
+            # Build cost summary for job
+            cost_report = self.cost_tracker.get_report()
+            cost_summary = {
+                "total_cost_usd": cost_report["summary"]["total_cost_usd"],
+                "text_cost_usd": cost_report["summary"]["text_generation_cost_usd"],
+                "image_cost_usd": cost_report["summary"]["image_generation_cost_usd"],
+                "tts_cost_usd": cost_report["summary"]["tts_generation_cost_usd"],
+                "total_tokens": cost_report["token_usage"]["total_tokens"],
+                "images_generated": cost_report["media_stats"]["images_generated"],
+            }
+            
+            # Mark completed with cost info
+            self.job_repo.mark_completed(
+                self.job_id, self.worker_id, course_id,
+                cost_summary=cost_summary,
+                output_directory=self._course_dir
+            )
+            
+            logger.info(
+                f"[{self.worker_id}] Job {self.job_id} completed: {course_id} "
+                f"(total cost: ${cost_summary['total_cost_usd']:.4f})"
+            )
             return True
             
         except Exception as e:
@@ -209,6 +270,9 @@ class JobProcessor:
             except asyncio.CancelledError:
                 pass
         
+        # Shutdown thread pool
+        self._media_executor.shutdown(wait=False)
+        
         # Clear references
         self._generation_service = None
         self._heartbeat_task = None
@@ -225,10 +289,23 @@ class JobProcessor:
                 logger.warning(f"Heartbeat failed: {e}")
     
     async def _generate_course(self, request: CourseGenerationRequest) -> str:
-        """Execute the course generation pipeline."""
+        """
+        Execute the complete course generation pipeline.
+        
+        PIPELINE:
+        1. Generate outline (text generation)
+        2. Create course folder structure on disk
+        3. Generate slide content (text, parallel with semaphore)
+        4. For each slide, generate image + TTS (multithreaded)
+        5. Save all files to disk
+        6. Calculate durations
+        7. Generate assessment
+        8. Store final course in MongoDB
+        9. Save cost report to disk
+        """
         start_time = datetime.utcnow()
         
-        # Create draft
+        # Create draft in MongoDB
         try:
             self.draft_repo.create_draft(
                 job_id=self.job_id,
@@ -248,14 +325,16 @@ class JobProcessor:
                 slides_total=slides_total or request.total_slides
             )
         
-        # Slide save callback
+        # Slide save callback (also saves to draft in MongoDB)
         async def save_slide(level_order: int, module_order: int, slide_data: dict):
             try:
                 self.draft_repo.save_slide(self.job_id, level_order, module_order, slide_data)
             except Exception as e:
-                logger.warning(f"Failed to save slide: {e}")
+                logger.warning(f"Failed to save slide to draft: {e}")
         
-        # Step 1: Generate outline
+        # =====================================================================
+        # Step 1: Generate course outline
+        # =====================================================================
         await update_progress("Generating course outline", 1, 0, request.total_slides)
         outline = await self._generation_service.generate_outline(request)
         
@@ -264,19 +343,46 @@ class JobProcessor:
         except Exception:
             pass
         
-        # Step 2: Generate slides
+        # =====================================================================
+        # Step 2: Create course folder structure on disk
+        # =====================================================================
+        await update_progress("Creating course directory structure", 1, 0, request.total_slides)
+        self._course_dir = self.file_storage.create_course_directory(
+            course_title=request.course_title,
+            job_id=self.job_id,
+            outline=outline,
+            request_data=request.model_dump()
+        )
+        logger.info(f"Course directory created: {self._course_dir}")
+        
+        # =====================================================================
+        # Step 3: Generate slide text content (parallel)
+        # =====================================================================
         course_content = await self._generation_service.generate_all_slides(
             outline, request,
             progress_callback=update_progress,
             slide_save_callback=save_slide
         )
         
-        # Step 3: Calculate durations
-        await update_progress("Calculating durations", 3, request.total_slides, request.total_slides)
+        # =====================================================================
+        # Step 4: Generate media (images + TTS) for all slides using threads
+        # =====================================================================
+        await update_progress(
+            "Generating images and voiceovers", 3,
+            request.total_slides, request.total_slides
+        )
+        course_content = await self._generate_all_media(course_content, outline, request)
+        
+        # =====================================================================
+        # Step 5: Calculate durations
+        # =====================================================================
+        await update_progress("Calculating durations", 4, request.total_slides, request.total_slides)
         total_duration = self._calculate_duration(course_content, request.words_per_minute)
         
-        # Step 4: Generate assessment
-        await update_progress("Generating assessment", 4, request.total_slides, request.total_slides)
+        # =====================================================================
+        # Step 6: Generate assessment
+        # =====================================================================
+        await update_progress("Generating assessment", 5, request.total_slides, request.total_slides)
         assessment_data = await self._generation_service.generate_assessment(
             course_content,
             pass_percentage=request.pass_percentage,
@@ -285,14 +391,19 @@ class JobProcessor:
         
         try:
             self.draft_repo.save_assessment(self.job_id, assessment_data)
+            # Save assessment to disk too
+            self.file_storage.save_assessment(self._course_dir, assessment_data)
         except Exception:
             pass
         
-        # Step 5: Store final course
-        await update_progress("Storing course", 5, request.total_slides, request.total_slides)
+        # =====================================================================
+        # Step 7: Store final course in MongoDB
+        # =====================================================================
+        await update_progress("Storing course", 6, request.total_slides, request.total_slides)
         
         course = self._build_course(course_content, assessment_data)
-        document = self._create_document(course, request)
+        cost_report = self.cost_tracker.get_report()
+        document = self._create_document(course, request, cost_report)
         stored = self.course_repo.create(document)
         
         try:
@@ -300,10 +411,219 @@ class JobProcessor:
         except Exception:
             pass
         
+        # =====================================================================
+        # Step 8: Save cost report to disk
+        # =====================================================================
+        try:
+            self.file_storage.save_cost_report(self._course_dir, cost_report)
+        except Exception as e:
+            logger.warning(f"Failed to save cost report: {e}")
+        
         elapsed = (datetime.utcnow() - start_time).total_seconds()
-        logger.info(f"Course generated: {request.course_title} ({format_duration(total_duration)}, {elapsed:.1f}s)")
+        total_cost = cost_report["summary"]["total_cost_usd"]
+        logger.info(
+            f"Course generated: {request.course_title} "
+            f"({format_duration(total_duration)}, {elapsed:.1f}s, "
+            f"cost: ${total_cost:.4f})"
+        )
         
         return stored.id
+    
+    # =========================================================================
+    # Media Generation (Images + TTS) with ThreadPoolExecutor
+    # =========================================================================
+    
+    async def _generate_all_media(
+        self,
+        course_content: dict,
+        outline: dict,
+        request: CourseGenerationRequest
+    ) -> dict:
+        """
+        Generate images and voiceover audio for all slides using multithreading.
+        
+        For each slide, concurrently:
+        1. Save content.json to disk
+        2. Generate image (DALL-E 3) via thread pool
+        3. Generate TTS audio (OpenAI TTS) via thread pool
+        
+        All slides are processed in parallel (bounded by thread pool size).
+        
+        Args:
+            course_content: Course content with text already generated
+            outline: Original outline (for folder path construction)
+            request: Original request
+            
+        Returns:
+            Updated course_content with image_url and voiceover_audio_url paths
+        """
+        loop = asyncio.get_event_loop()
+        media_tasks = []
+        
+        # Build a flat list of all slides with their context
+        slide_index = 0
+        for level_data in course_content["levels"]:
+            for module_data in level_data["modules"]:
+                for slide_idx, slide_data in enumerate(module_data["slides"]):
+                    slide_index += 1
+                    
+                    # Get the slide directory path
+                    slide_dir = self.file_storage.get_slide_directory(
+                        course_dir=self._course_dir,
+                        level_order=level_data["level_order"],
+                        level_title=level_data["level_title"],
+                        module_order=module_data["module_order"],
+                        module_title=module_data["module_title"],
+                        slide_index=slide_idx + 1,
+                        slide_title=slide_data.get("slide_title", f"Slide_{slide_idx + 1}")
+                    )
+                    
+                    # Create async task for this slide's media generation
+                    task = self._generate_slide_media(
+                        slide_data=slide_data,
+                        slide_dir=slide_dir,
+                        slide_index=slide_index,
+                        loop=loop
+                    )
+                    media_tasks.append((level_data, module_data, slide_idx, task))
+        
+        # Run all media generation tasks concurrently
+        logger.info(f"Starting media generation for {len(media_tasks)} slides using thread pool")
+        
+        tasks_only = [t[3] for t in media_tasks]
+        results = await asyncio.gather(*tasks_only, return_exceptions=True)
+        
+        # Apply results back to course_content
+        images_success = 0
+        tts_success = 0
+        
+        for i, (level_data, module_data, slide_idx, _) in enumerate(media_tasks):
+            result = results[i]
+            
+            if isinstance(result, Exception):
+                logger.error(f"Media generation exception for slide {i + 1}: {result}")
+                continue
+            
+            slide_data = module_data["slides"][slide_idx]
+            
+            # Update slide with media paths
+            if result.get("image_path"):
+                relative_path = self.file_storage.get_relative_path(result["image_path"])
+                slide_data["image_url"] = relative_path
+                images_success += 1
+            
+            if result.get("voiceover_path"):
+                relative_path = self.file_storage.get_relative_path(result["voiceover_path"])
+                slide_data["voiceover_audio_url"] = relative_path
+                tts_success += 1
+        
+        logger.info(
+            f"Media generation complete: {images_success}/{len(media_tasks)} images, "
+            f"{tts_success}/{len(media_tasks)} voiceovers"
+        )
+        
+        return course_content
+    
+    async def _generate_slide_media(
+        self,
+        slide_data: dict,
+        slide_dir: str,
+        slide_index: int,
+        loop: asyncio.AbstractEventLoop
+    ) -> dict:
+        """
+        Generate image and TTS for a single slide using thread pool.
+        
+        Runs image and TTS generation concurrently in separate threads.
+        Also saves slide content to disk.
+        
+        Args:
+            slide_data: Slide content dictionary
+            slide_dir: Path to slide's directory
+            slide_index: Slide number (for cost tracking labels)
+            loop: Event loop for executor submission
+            
+        Returns:
+            dict with image_path and voiceover_path
+        """
+        result = {"image_path": None, "voiceover_path": None}
+        
+        # Save slide content to disk (quick, no API call needed)
+        try:
+            self.file_storage.save_slide_content(slide_dir, slide_data)
+        except Exception as e:
+            logger.warning(f"Failed to save slide content: {e}")
+        
+        # Prepare paths
+        image_path = self.file_storage.get_image_path(slide_dir)
+        voiceover_path = self.file_storage.get_voiceover_path(slide_dir)
+        
+        visual_prompt = slide_data.get("visual_prompt", "")
+        voiceover_script = slide_data.get("voiceover_script", "")
+        
+        # Run image and TTS generation concurrently in thread pool
+        image_future = None
+        tts_future = None
+        
+        if visual_prompt:
+            image_future = loop.run_in_executor(
+                self._media_executor,
+                self.image_service.generate_image,
+                visual_prompt,
+                image_path
+            )
+        
+        if voiceover_script:
+            tts_future = loop.run_in_executor(
+                self._media_executor,
+                self.tts_service.generate_speech,
+                voiceover_script,
+                voiceover_path
+            )
+        
+        # Await both concurrently
+        futures = []
+        if image_future:
+            futures.append(("image", image_future))
+        if tts_future:
+            futures.append(("tts", tts_future))
+        
+        for media_type, future in futures:
+            try:
+                media_result = await future
+                
+                if media_result.get("success"):
+                    if media_type == "image":
+                        result["image_path"] = media_result["output_path"]
+                        # Track image cost
+                        self.cost_tracker.add_image_generation(
+                            model=media_result.get("model", "dall-e-3"),
+                            size=media_result.get("size", "1024x1024"),
+                            quality=media_result.get("quality", "standard"),
+                            label=f"slide_{slide_index}_image"
+                        )
+                    elif media_type == "tts":
+                        result["voiceover_path"] = media_result["output_path"]
+                        # Track TTS cost
+                        self.cost_tracker.add_tts_generation(
+                            character_count=media_result.get("character_count", 0),
+                            model=media_result.get("model", "tts-1"),
+                            label=f"slide_{slide_index}_tts"
+                        )
+                else:
+                    logger.warning(
+                        f"Slide {slide_index} {media_type} failed: "
+                        f"{media_result.get('error', 'unknown')}"
+                    )
+                    
+            except Exception as e:
+                logger.error(f"Slide {slide_index} {media_type} exception: {e}")
+        
+        return result
+    
+    # =========================================================================
+    # Course Building Helpers
+    # =========================================================================
     
     def _calculate_duration(self, course_content: dict, words_per_minute: int) -> int:
         """Calculate total course duration."""
@@ -314,7 +634,7 @@ class JobProcessor:
         return calculate_total_course_duration(all_slides, words_per_minute)
     
     def _build_course(self, course_content: dict, assessment_data: dict) -> Course:
-        """Build Course object."""
+        """Build Course object with media paths."""
         levels = []
         for level_data in course_content["levels"]:
             modules = []
@@ -325,7 +645,9 @@ class JobProcessor:
                         slide_text=s["slide_text"],
                         visual_prompt=s["visual_prompt"],
                         voiceover_script=s["voiceover_script"],
-                        estimated_duration_sec=s["estimated_duration_sec"]
+                        estimated_duration_sec=s["estimated_duration_sec"],
+                        image_url=s.get("image_url"),
+                        voiceover_audio_url=s.get("voiceover_audio_url"),
                     )
                     for s in module_data["slides"]
                 ]
@@ -359,8 +681,17 @@ class JobProcessor:
             )
         )
     
-    def _create_document(self, course: Course, request: CourseGenerationRequest) -> CourseDocument:
-        """Create CourseDocument."""
+    def _create_document(
+        self,
+        course: Course,
+        request: CourseGenerationRequest,
+        cost_report: dict
+    ) -> CourseDocument:
+        """Create CourseDocument with costs and output directory."""
+        cost_summary = cost_report.get("summary", {})
+        token_usage = cost_report.get("token_usage", {})
+        media_stats = cost_report.get("media_stats", {})
+        
         return CourseDocument(
             metadata=CourseMetadata(
                 title=course.title,
@@ -380,7 +711,19 @@ class JobProcessor:
                 target_slide_duration_sec=request.target_slide_duration_sec,
                 words_per_minute=request.words_per_minute,
                 pass_percentage=request.pass_percentage
-            )
+            ),
+            generation_costs=GenerationCosts(
+                total_cost_usd=cost_summary.get("total_cost_usd", 0.0),
+                text_generation_cost_usd=cost_summary.get("text_generation_cost_usd", 0.0),
+                image_generation_cost_usd=cost_summary.get("image_generation_cost_usd", 0.0),
+                tts_generation_cost_usd=cost_summary.get("tts_generation_cost_usd", 0.0),
+                total_tokens=token_usage.get("total_tokens", 0),
+                total_prompt_tokens=token_usage.get("total_prompt_tokens", 0),
+                total_completion_tokens=token_usage.get("total_completion_tokens", 0),
+                images_generated=media_stats.get("images_generated", 0),
+                tts_characters=media_stats.get("tts_total_characters", 0),
+            ),
+            output_directory=self._course_dir
         )
 
 

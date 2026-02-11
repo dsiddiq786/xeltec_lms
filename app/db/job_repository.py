@@ -183,20 +183,29 @@ class JobRepository:
         self,
         job_id: str,
         worker_id: str,
-        course_id: str
+        course_id: str,
+        cost_summary: dict = None,
+        output_directory: str = None
     ) -> bool:
         """Mark job as successfully completed."""
         try:
             object_id = ObjectId(job_id)
+            update_fields = {
+                "status": JobStatus.COMPLETED.value,
+                "course_id": course_id,
+                "completed_at": datetime.utcnow(),
+                "progress.current_step": "Completed",
+                "progress.percentage": 100.0
+            }
+            
+            if cost_summary:
+                update_fields["cost_summary"] = cost_summary
+            if output_directory:
+                update_fields["output_directory"] = output_directory
+            
             result = self.collection.update_one(
                 {"_id": object_id, "worker_id": worker_id},
-                {"$set": {
-                    "status": JobStatus.COMPLETED.value,
-                    "course_id": course_id,
-                    "completed_at": datetime.utcnow(),
-                    "progress.current_step": "Completed",
-                    "progress.percentage": 100.0
-                }}
+                {"$set": update_fields}
             )
             return result.modified_count > 0
             

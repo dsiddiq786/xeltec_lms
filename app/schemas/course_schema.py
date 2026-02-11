@@ -24,6 +24,8 @@ class Slide(BaseModel):
     - voiceover_script: Natural spoken narration matching duration constraints
     - visual_prompt: Descriptive prompt for visual generation
     - estimated_duration_sec: Calculated from actual word count
+    - image_url: Path to the generated image (local or S3)
+    - voiceover_audio_url: Path to the generated audio (local or S3)
     """
     slide_title: str = Field(
         ...,
@@ -49,6 +51,17 @@ class Slide(BaseModel):
         ...,
         ge=1,
         description="Calculated duration based on voiceover word count"
+    )
+    
+    # --- Media Asset Paths (populated after generation) ---
+    image_url: Optional[str] = Field(
+        default=None,
+        description="Path to the AI-generated image (local path or S3 URL)"
+    )
+    
+    voiceover_audio_url: Optional[str] = Field(
+        default=None,
+        description="Path to the AI-generated voiceover audio (local path or S3 URL)"
     )
 
 
@@ -236,6 +249,53 @@ class CourseConstraints(BaseModel):
     pass_percentage: int
 
 
+class GenerationCosts(BaseModel):
+    """
+    Cost breakdown for course generation.
+    
+    Tracks all OpenAI API costs:
+    - Text generation (GPT-4 tokens)
+    - Image generation (DALL-E 3)
+    - TTS generation (OpenAI TTS)
+    """
+    total_cost_usd: float = Field(
+        default=0.0,
+        description="Total cost in USD for generating this course"
+    )
+    text_generation_cost_usd: float = Field(
+        default=0.0,
+        description="Cost for all text generation (outline, slides, assessment)"
+    )
+    image_generation_cost_usd: float = Field(
+        default=0.0,
+        description="Cost for all DALL-E image generations"
+    )
+    tts_generation_cost_usd: float = Field(
+        default=0.0,
+        description="Cost for all TTS audio generations"
+    )
+    total_tokens: int = Field(
+        default=0,
+        description="Total tokens used (prompt + completion)"
+    )
+    total_prompt_tokens: int = Field(
+        default=0,
+        description="Total prompt/input tokens"
+    )
+    total_completion_tokens: int = Field(
+        default=0,
+        description="Total completion/output tokens"
+    )
+    images_generated: int = Field(
+        default=0,
+        description="Number of images generated"
+    )
+    tts_characters: int = Field(
+        default=0,
+        description="Total characters sent to TTS"
+    )
+
+
 class CourseDocument(BaseModel):
     """
     Complete course document for NoSQL storage.
@@ -266,6 +326,16 @@ class CourseDocument(BaseModel):
     constraints: CourseConstraints = Field(
         ...,
         description="System constraints used for generation"
+    )
+    
+    generation_costs: Optional[GenerationCosts] = Field(
+        default=None,
+        description="Cost breakdown for generating this course"
+    )
+    
+    output_directory: Optional[str] = Field(
+        default=None,
+        description="Path to the generated course files on disk"
     )
     
     class Config:

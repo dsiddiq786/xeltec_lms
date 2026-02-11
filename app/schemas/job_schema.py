@@ -138,6 +138,17 @@ class GenerationJob(BaseModel):
         description="Maximum retry attempts"
     )
     
+    # Cost and output tracking
+    cost_summary: Optional[dict] = Field(
+        default=None,
+        description="Cost summary for this generation job"
+    )
+    
+    output_directory: Optional[str] = Field(
+        default=None,
+        description="Path to the generated course files on disk"
+    )
+    
     # Timestamps
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
@@ -177,6 +188,16 @@ class JobCreateResponse(BaseModel):
     )
 
 
+class JobCostSummary(BaseModel):
+    """Cost summary embedded in job status."""
+    total_cost_usd: float = Field(default=0.0, description="Total cost so far")
+    text_cost_usd: float = Field(default=0.0, description="Text generation cost")
+    image_cost_usd: float = Field(default=0.0, description="Image generation cost")
+    tts_cost_usd: float = Field(default=0.0, description="TTS generation cost")
+    total_tokens: int = Field(default=0, description="Total tokens used")
+    images_generated: int = Field(default=0, description="Images generated so far")
+
+
 class JobStatusResponse(BaseModel):
     """Response when querying job status."""
     job_id: str
@@ -192,6 +213,8 @@ class JobStatusResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     elapsed_seconds: Optional[float] = None
+    cost_summary: Optional[JobCostSummary] = None
+    output_directory: Optional[str] = None
     
     @classmethod
     def from_job(cls, job: GenerationJob) -> "JobStatusResponse":
@@ -200,6 +223,11 @@ class JobStatusResponse(BaseModel):
         if job.started_at:
             end_time = job.completed_at or datetime.utcnow()
             elapsed = (end_time - job.started_at).total_seconds()
+        
+        # Extract cost summary if available
+        cost_summary = None
+        if hasattr(job, 'cost_summary') and job.cost_summary:
+            cost_summary = JobCostSummary(**job.cost_summary)
         
         return cls(
             job_id=job.id,
@@ -214,7 +242,9 @@ class JobStatusResponse(BaseModel):
             queued_at=job.queued_at,
             started_at=job.started_at,
             completed_at=job.completed_at,
-            elapsed_seconds=elapsed
+            elapsed_seconds=elapsed,
+            cost_summary=cost_summary,
+            output_directory=getattr(job, 'output_directory', None)
         )
 
 
