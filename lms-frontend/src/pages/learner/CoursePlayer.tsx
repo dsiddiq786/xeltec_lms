@@ -17,6 +17,18 @@ function getStaticUrl(path: string | null | undefined): string {
     return `/static/${clean}`;
 }
 
+function safeText(value: unknown): string {
+    if (value == null) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (Array.isArray(value)) return value.map(safeText).join('\n');
+    if (typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        return obj.text as string || obj.content as string || obj.label as string || JSON.stringify(value);
+    }
+    return String(value);
+}
+
 interface ProgressData {
     level_index: number;
     module_index: number;
@@ -88,7 +100,7 @@ export function CoursePlayer() {
         queryKey: ['assessment-questions', enrollmentId],
         queryFn: async () => {
             const { data } = await api.get(`/learning/${enrollmentId}/assessment/questions`);
-            return data;
+            return Array.isArray(data) ? data : data?.data ?? [];
         },
         enabled: viewMode === 'assessment' || viewMode === 'assessment-intro',
         retry: false,
@@ -98,7 +110,7 @@ export function CoursePlayer() {
         queryKey: ['assessment-history', enrollmentId],
         queryFn: async () => {
             const { data } = await api.get(`/learning/${enrollmentId}/assessment/history`);
-            return data;
+            return Array.isArray(data) ? data : data?.data ?? [];
         },
     });
 
@@ -132,47 +144,35 @@ export function CoursePlayer() {
         onError: (err: any) => toast.error(err.response?.data?.message || 'Assessment submission failed'),
     });
 
-    if (isLoading) {
-        return (
-            <div className="flex items-center justify-center h-screen" style={{ background: '#f8f9fa' }}>
-                <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#035A51', borderTopColor: 'transparent' }} />
-            </div>
-        );
-    }
-
+    // Derive all state (safe when learningState is undefined during loading)
     const snapshot = learningState?.course_version?.content_snapshot;
-    const levels = snapshot?.levels || [];
-    const courseTitle = learningState?.course_version?.course?.title || 'Course';
+    const levels = Array.isArray(snapshot?.levels) ? snapshot.levels : [];
+    const courseTitle = safeText(learningState?.course_version?.course?.title || snapshot?.title) || 'Course';
     const progressPct = learningState?.progress?.progress_percentage ?? 0;
     const isCompleted = learningState?.status === 'COMPLETED';
-    const displayName = user?.first_name ? `${user.first_name} ${user.last_name}` : user?.email?.split('@')[0] || 'Learner';
+    const displayName = user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.email?.split('@')[0] || 'Learner';
 
     const allModules: { levelIdx: number; moduleIdx: number; title: string; slideCount: number }[] = [];
     levels.forEach((level: any, li: number) => {
-        (level.modules || []).forEach((mod: any, mi: number) => {
+        const mods = Array.isArray(level.modules) ? level.modules : [];
+        mods.forEach((mod: any, mi: number) => {
             allModules.push({
                 levelIdx: li, moduleIdx: mi,
-                title: mod.title || `Module ${mi + 1}`,
-                slideCount: mod.slides?.length || 0,
+                title: safeText(mod.title) || `Module ${mi + 1}`,
+                slideCount: Array.isArray(mod.slides) ? mod.slides.length : 0,
             });
         });
     });
 
     const currentLevelData = levels[currentLevel];
-    const modules = currentLevelData?.modules || [];
-    const currentModuleData = modules[currentModule];
+    const currentModules = currentLevelData?.modules || [];
+    const currentModuleData = currentModules[currentModule];
     const slides = currentModuleData?.slides || [];
     const currentSlideData = slides[currentSlide];
     const totalSlides = allModules.reduce((sum, m) => sum + m.slideCount, 0) || 1;
 
     const maxLevel = learningState?.progress?.level_index ?? 0;
     const maxModule = learningState?.progress?.module_index ?? 0;
-    const isModuleAccessible = (levelIdx: number, moduleIdx: number) => {
-        if (!learningState?.strict_mode || isCompleted) return true;
-        if (levelIdx < maxLevel) return true;
-        if (levelIdx === maxLevel && moduleIdx <= maxModule) return true;
-        return false;
-    };
 
     const goToSlide = useCallback((level: number, module: number, slide: number) => {
         setCurrentLevel(level);
@@ -186,14 +186,14 @@ export function CoursePlayer() {
 
     const goNext = useCallback(() => {
         if (currentSlide < slides.length - 1) goToSlide(currentLevel, currentModule, currentSlide + 1);
-        else if (currentModule < modules.length - 1) goToSlide(currentLevel, currentModule + 1, 0);
+        else if (currentModule < currentModules.length - 1) goToSlide(currentLevel, currentModule + 1, 0);
         else if (currentLevel < levels.length - 1) goToSlide(currentLevel + 1, 0, 0);
-    }, [currentSlide, slides.length, currentModule, modules.length, currentLevel, levels.length, goToSlide]);
+    }, [currentSlide, slides.length, currentModule, currentModules.length, currentLevel, levels.length, goToSlide]);
 
     const goPrev = useCallback(() => {
         if (currentSlide > 0) goToSlide(currentLevel, currentModule, currentSlide - 1);
         else if (currentModule > 0) {
-            const prevModSlides = modules[currentModule - 1]?.slides || [];
+            const prevModSlides = currentModules[currentModule - 1]?.slides || [];
             goToSlide(currentLevel, currentModule - 1, Math.max(0, prevModSlides.length - 1));
         } else if (currentLevel > 0) {
             const prevLevel = levels[currentLevel - 1];
@@ -201,11 +201,10 @@ export function CoursePlayer() {
             const lastMod = prevMods[prevMods.length - 1];
             goToSlide(currentLevel - 1, prevMods.length - 1, Math.max(0, (lastMod?.slides?.length || 1) - 1));
         }
-    }, [currentSlide, currentModule, modules, currentLevel, levels, goToSlide]);
+    }, [currentSlide, currentModule, currentModules, currentLevel, levels, goToSlide]);
 
-    // Audio management: play/stop audio when slide changes
     useEffect(() => {
-        if (viewMode !== 'player') return;
+        if (viewMode !== 'player' || isLoading) return;
         const audioUrl = getStaticUrl(currentSlideData?.audio_url);
         const slideDuration = (currentSlideData?.estimated_duration_sec || DEFAULT_SLIDE_DURATION) * 1000;
         const isStrict = learningState?.strict_mode && !isCompleted;
@@ -232,14 +231,12 @@ export function CoursePlayer() {
                 if (audio.duration) setAudioProgress(Math.min(100, (audio.currentTime / audio.duration) * 100));
             });
             audio.addEventListener('error', () => {
-                // If audio fails, fallback to timer
                 timerRef.current = setTimeout(() => setSlideUnlocked(true), slideDuration);
             });
             audio.play().catch(() => {
                 timerRef.current = setTimeout(() => setSlideUnlocked(true), slideDuration);
             });
         } else {
-            // No audio: use estimated duration as timer
             const elapsed = { t: 0 };
             const interval = setInterval(() => {
                 elapsed.t += 500;
@@ -253,15 +250,30 @@ export function CoursePlayer() {
             if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
             if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
         };
-    }, [viewMode, currentLevel, currentModule, currentSlide]);
+    }, [viewMode, currentLevel, currentModule, currentSlide, isLoading]);
 
-    // Sync mute/speed to playing audio
     useEffect(() => {
         if (audioRef.current) { audioRef.current.muted = isMuted; audioRef.current.playbackRate = playbackSpeed; }
     }, [isMuted, playbackSpeed]);
 
+    // ── Loading state (after all hooks) ──
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center h-screen" style={{ background: '#f8f9fa' }}>
+                <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: '#035A51', borderTopColor: 'transparent' }} />
+            </div>
+        );
+    }
+
+    const isModuleAccessible = (levelIdx: number, moduleIdx: number) => {
+        if (!learningState?.strict_mode || isCompleted) return true;
+        if (levelIdx < maxLevel) return true;
+        if (levelIdx === maxLevel && moduleIdx <= maxModule) return true;
+        return false;
+    };
+
     const isFirstSlide = currentLevel === 0 && currentModule === 0 && currentSlide === 0;
-    const isLastSlide = currentLevel === levels.length - 1 && currentModule === modules.length - 1 && currentSlide === slides.length - 1;
+    const isLastSlide = currentLevel === levels.length - 1 && currentModule === currentModules.length - 1 && currentSlide === slides.length - 1;
 
     const completedSteps = Math.floor((progressPct / 100) * (allModules.length || 1));
 
@@ -324,7 +336,7 @@ export function CoursePlayer() {
                             <h1 className="text-2xl font-bold text-gray-900 mb-2">
                                 {lastResult.passed ? 'Congratulations!' : 'Not Quite'}
                             </h1>
-                            <p className="text-gray-500 mb-4">{lastResult.message}</p>
+                            <p className="text-gray-500 mb-4">{safeText(lastResult.message)}</p>
                             <div className="text-5xl font-black mb-2" style={{ color: lastResult.passed ? '#035A51' : '#f44336' }}>
                                 {lastResult.score}%
                             </div>
@@ -383,9 +395,9 @@ export function CoursePlayer() {
 
                             {q && (
                                 <div className="bg-white rounded-2xl p-8 border border-gray-100">
-                                    <h2 className="text-lg font-bold text-gray-900 mb-6">{q.question}</h2>
+                                    <h2 className="text-lg font-bold text-gray-900 mb-6">{safeText(q.question)}</h2>
                                     <div className="space-y-3">
-                                        {q.options.map((opt, idx) => {
+                                        {(Array.isArray(q.options) ? q.options : []).map((opt, idx) => {
                                             const isSelected = assessmentAnswers[q.id] === idx;
                                             return (
                                                 <button
@@ -402,7 +414,7 @@ export function CoursePlayer() {
                                                     }`}>
                                                         {String.fromCharCode(65 + idx)}
                                                     </span>
-                                                    {opt}
+                                                    {safeText(opt)}
                                                 </button>
                                             );
                                         })}
@@ -461,13 +473,13 @@ export function CoursePlayer() {
                                 <li>You need <strong>70%</strong> to pass. Best of luck!</li>
                             </ul>
 
-                            {lastAttempt && (
+                            {lastAttempt && typeof lastAttempt === 'object' && 'score' in lastAttempt && (
                                 <div className="p-4 bg-gray-50 rounded-xl mb-6 text-sm">
                                     <span className="text-gray-500">Last attempt:</span>{' '}
                                     <span className={`font-semibold ${lastAttempt.passed ? 'text-green-600' : 'text-red-500'}`}>
-                                        {lastAttempt.score}% — {lastAttempt.passed ? 'Passed' : 'Failed'}
+                                        {safeText(lastAttempt.score)}% — {lastAttempt.passed ? 'Passed' : 'Failed'}
                                     </span>
-                                    <span className="text-gray-400 ml-2">(Attempt #{lastAttempt.attempt_number})</span>
+                                    <span className="text-gray-400 ml-2">(Attempt #{safeText(lastAttempt.attempt_number)})</span>
                                 </div>
                             )}
 
@@ -539,7 +551,7 @@ export function CoursePlayer() {
                                     <div key={i} className="flex items-center justify-between py-4" style={{ borderTop: i > 0 ? '1px solid #f5f5f5' : 'none' }}>
                                         <div className="flex items-center gap-3">
                                             {!accessible && <Lock className="w-4 h-4 text-gray-300" />}
-                                            <span className={`text-sm font-medium ${accessible ? 'text-gray-900' : 'text-gray-400'}`}>{mod.title}</span>
+                                            <span className={`text-sm font-medium ${accessible ? 'text-gray-900' : 'text-gray-400'}`}>{safeText(mod.title)}</span>
                                         </div>
                                         <div className="flex items-center gap-4">
                                             {isPassed ? (
@@ -699,8 +711,8 @@ export function CoursePlayer() {
                                 />
                             </div>
                             <div className="flex-1 p-8 flex flex-col justify-center">
-                                <h2 className="text-lg font-bold text-gray-900 mb-5">{currentSlideData?.title || 'Slide'}</h2>
-                                <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{currentSlideData?.content || currentSlideData?.text || ''}</div>
+                                <h2 className="text-lg font-bold text-gray-900 mb-5">{safeText(currentSlideData?.title) || 'Slide'}</h2>
+                                <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{safeText(currentSlideData?.content || currentSlideData?.text)}</div>
                             </div>
                         </div>
                     )}
@@ -716,7 +728,7 @@ export function CoursePlayer() {
                     <div className="flex items-center justify-between px-5 py-3 border-t border-gray-50">
                         <div>
                             <div className="text-sm font-semibold text-gray-900">{courseTitle}</div>
-                            <div className="text-xs text-gray-400">Slide {globalSlideIdx}: {currentSlideData?.title || ''}</div>
+                            <div className="text-xs text-gray-400">Slide {globalSlideIdx}: {safeText(currentSlideData?.title)}</div>
                         </div>
                         <div className="flex items-center gap-4">
                             {!slideUnlocked && learningState?.strict_mode && !isCompleted && slideType !== 'quiz' && (
@@ -798,13 +810,14 @@ function ExerciseSlide({ slide, onNext, isLast }: { slide: any; onNext: () => vo
     const [selected, setSelected] = useState<number | null>(null);
     const [submitted, setSubmitted] = useState(false);
 
-    const question = slide?.quiz_question || slide?.question || slide?.title || 'Question';
-    const options: string[] = slide?.quiz_options || slide?.options || ['Option A', 'Option B', 'Option C', 'Option D'];
+    const question = safeText(slide?.quiz_question || slide?.question || slide?.title) || 'Question';
+    const rawOptions = slide?.quiz_options || slide?.options || ['Option A', 'Option B', 'Option C', 'Option D'];
+    const options: string[] = Array.isArray(rawOptions) ? rawOptions.map((o: unknown) => safeText(o) || '(empty)') : ['Option A', 'Option B', 'Option C', 'Option D'];
     const correctIdx: number = slide?.quiz_correct_index ?? slide?.correct_option ?? 0;
-    const explanation: string = slide?.quiz_explanation || '';
+    const explanation: string = safeText(slide?.quiz_explanation);
     const isCorrect = selected === correctIdx;
 
-    const contextText = slide?.slide_text;
+    const contextText = safeText(slide?.slide_text);
 
     return (
         <div className="p-8 min-h-[420px] flex flex-col">

@@ -8,16 +8,12 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api/course-generator': {
-        target: 'http://localhost:8000',
+      '/api': {
+        target: 'http://localhost:80',
         changeOrigin: true,
       },
       '/static': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/api': {
-        target: 'http://localhost:4000',
+        target: 'http://localhost:80',
         changeOrigin: true,
       },
     },

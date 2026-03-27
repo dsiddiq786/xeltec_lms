@@ -125,17 +125,6 @@ export class BusinessService {
 
             let user = await tx.user.findUnique({ where: { email: dto.email } });
 
-            if (user) {
-                const existing = await tx.employee.findFirst({
-                    where: {
-                        business_id: businessId,
-                        user_id: user.id,
-                        ...PrismaService.notDeleted,
-                    },
-                });
-                if (existing) throw new ConflictException('User is already part of this business');
-            }
-
             if (!user) {
                 user = await tx.user.create({
                     data: {
@@ -146,13 +135,28 @@ export class BusinessService {
                 });
             }
 
-            const employee = await tx.employee.create({
-                data: {
-                    business_id: businessId,
-                    user_id: user.id,
-                    status: EmployeeStatus.INVITED,
-                },
+            const existingEmployee = await tx.employee.findFirst({
+                where: { business_id: businessId, user_id: user.id },
             });
+
+            let employee;
+            if (existingEmployee) {
+                if (existingEmployee.deleted_at === null && existingEmployee.status !== EmployeeStatus.DEACTIVATED) {
+                    throw new ConflictException('User is already part of this business');
+                }
+                employee = await tx.employee.update({
+                    where: { id: existingEmployee.id },
+                    data: { status: EmployeeStatus.INVITED, deleted_at: null },
+                });
+            } else {
+                employee = await tx.employee.create({
+                    data: {
+                        business_id: businessId,
+                        user_id: user.id,
+                        status: EmployeeStatus.INVITED,
+                    },
+                });
+            }
 
             await tx.business.update({
                 where: { id: businessId },
@@ -486,13 +490,26 @@ export class BusinessService {
                 });
             }
 
-            await tx.employee.create({
-                data: {
-                    business_id: biz.id,
-                    user_id: user.id,
-                    status: EmployeeStatus.PENDING_APPROVAL,
-                },
+            const existingEmp = await tx.employee.findFirst({
+                where: { business_id: biz.id, user_id: user.id },
             });
+            if (existingEmp) {
+                if (existingEmp.deleted_at === null && existingEmp.status !== EmployeeStatus.DEACTIVATED) {
+                    throw new ConflictException('You are already part of this company');
+                }
+                await tx.employee.update({
+                    where: { id: existingEmp.id },
+                    data: { status: EmployeeStatus.PENDING_APPROVAL, deleted_at: null },
+                });
+            } else {
+                await tx.employee.create({
+                    data: {
+                        business_id: biz.id,
+                        user_id: user.id,
+                        status: EmployeeStatus.PENDING_APPROVAL,
+                    },
+                });
+            }
 
             this.emailService.send({
                 to: biz.owner_id ? (await this.prisma.user.findUnique({ where: { id: biz.owner_id }, select: { email: true } }))?.email || '' : '',
