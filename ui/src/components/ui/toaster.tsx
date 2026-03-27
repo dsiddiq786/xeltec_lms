@@ -1,5 +1,5 @@
 
-import { useToast, Toast, ToastTitle, ToastDescription, ToastViewport, ToastProvider, ToastClose } from "@/components/ui/toast"
+import { Toast, ToastTitle, ToastDescription, ToastViewport, ToastProvider, ToastClose } from "@/components/ui/toast"
 import { useToast as useToastHook } from "@/components/ui/use-toast"
 
 export function Toaster() {

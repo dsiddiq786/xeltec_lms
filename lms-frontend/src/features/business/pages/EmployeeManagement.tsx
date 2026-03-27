@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { UserPlus, RefreshCw, Trash2, Search, Users, UserCheck, Clock, CheckCircle, Ban } from 'lucide-react';
+import { ConfirmDialog } from '../../../components/shared/ConfirmDialog';
 
 interface Employee {
     id: string;
@@ -21,6 +22,7 @@ export function EmployeeManagement() {
     const [search, setSearch] = useState('');
     const [showInvite, setShowInvite] = useState(false);
     const [inviteEmail, setInviteEmail] = useState('');
+    const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null);
 
     const { data: biz, isLoading } = useQuery({
         queryKey: ['my-business'],
@@ -96,6 +98,14 @@ export function EmployeeManagement() {
 
     return (
         <div>
+            <ConfirmDialog
+                open={!!removeTarget}
+                title="Remove Employee?"
+                message={`Are you sure you want to remove "${removeTarget?.name || ''}"? They will lose access to all assigned courses.`}
+                confirmLabel="Remove"
+                onConfirm={() => { if (removeTarget) removeMutation.mutate(removeTarget.id); setRemoveTarget(null); }}
+                onCancel={() => setRemoveTarget(null)}
+            />
             <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">Employees</h1>
                 <button onClick={() => setShowInvite(true)} className="btn-lime inline-flex items-center gap-2">
@@ -218,7 +228,7 @@ export function EmployeeManagement() {
                                                 )}
                                                 {emp.status !== 'PENDING_APPROVAL' && (
                                                     <button
-                                                        onClick={() => { if (window.confirm('Remove this employee?')) removeMutation.mutate(emp.id); }}
+                                                        onClick={() => setRemoveTarget({ id: emp.id, name: emp.user?.email || 'this employee' })}
                                                         className="text-red-400 hover:text-red-600"
                                                         title="Remove"
                                                     >

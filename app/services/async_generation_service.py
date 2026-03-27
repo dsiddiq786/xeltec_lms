@@ -25,7 +25,7 @@ from app.utils.validators import (
 logger = logging.getLogger(__name__)
 
 # Concurrency limit to avoid rate limiting
-MAX_CONCURRENT_SLIDES = 3  # Reduced for stability
+MAX_CONCURRENT_SLIDES = 5  # Increased for throughput
 MAX_RETRIES = 5  # More retries for resilience
 RETRY_DELAY_BASE = 2  # Base delay for exponential backoff
 
@@ -77,12 +77,15 @@ class AsyncGenerationService:
             await progress_callback("Generating course outline", 1, 0, 0)
         
         prompt = self._build_outline_prompt(request)
+        system_prompt = self._get_outline_system_prompt()
+        if request.course_prompt:
+            system_prompt += f"\n\nADDITIONAL INSTRUCTIONS FROM ADMIN:\n{request.course_prompt}"
         
         try:
             response = await self._client.chat.completions.create(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": self._get_outline_system_prompt()},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"}
@@ -120,13 +123,18 @@ class AsyncGenerationService:
 
 Your task is to generate a structured course outline with meaningful, educational titles.
 
+SLIDE TYPES:
+- "content": Normal instructional slide with text, visuals, voiceover
+- "quiz": Inline module check-in with 1-2 questions (placed as the LAST slide of each module)
+
 CRITICAL RULES:
 1. Output MUST be valid JSON
 2. You MUST create EXACTLY the number of levels, modules, and slides specified
 3. Titles must be clear, professional, and educational
 4. Each level should represent progressive learning
 5. Modules within a level should be logically grouped
-6. Slide titles should indicate specific learning content
+6. The LAST slide in every module MUST be a quiz slide titled "Module Check: [topic]"
+7. All other slides are content slides
 
 DO NOT:
 - Skip any hierarchy level
@@ -149,11 +157,11 @@ If fewer modules are required, use only the first N names.
         intro_instruction = ""
         if request.include_standard_intro_slides:
             intro_instruction = """
-STANDARD INTRO SLIDES REQUIREMENT:
-For the FIRST module of the FIRST level, you MUST include these 3 specific slides at the beginning:
-1. "Course Title & Welcome" (slide_title)
-2. "Learning Outcomes" (slide_title) - list 3-5 key outcomes
-3. "Module 1 Overview" (slide_title) - what this module covers
+WELCOME SLIDES REQUIREMENT:
+Add exactly 2 extra content slides at the very START of the FIRST module of the FIRST level:
+1. {{"title": "Course Title & Welcome", "type": "content"}}
+2. {{"title": "Learning Outcomes & Overview", "type": "content"}}
+These are brief intro slides (no heavy content or voiceover needed). They do NOT count toward the per-module slide total.
 """
 
         return f"""Create a course outline for:
@@ -173,6 +181,9 @@ REQUIRED STRUCTURE (MUST FOLLOW EXACTLY):
 {module_instruction}
 {intro_instruction}
 
+QUIZ SLIDE RULE:
+The LAST slide in EVERY module must be a quiz slide (type "quiz") titled "Module Check: [module topic]".
+
 OUTPUT FORMAT (JSON):
 {{
     "description": "2-3 sentence course description covering learning objectives",
@@ -184,9 +195,9 @@ OUTPUT FORMAT (JSON):
                 {{
                     "module_title": "Descriptive module title",
                     "module_order": 1,
-                    "slide_titles": [
-                        "Slide 1 title",
-                        "Slide 2 title"
+                    "slides": [
+                        {{"title": "Slide 1 title", "type": "content"}},
+                        {{"title": "Module Check: Topic", "type": "quiz"}}
                     ]
                 }}
             ]
@@ -201,7 +212,11 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
         outline: dict,
         request: CourseGenerationRequest
     ) -> None:
-        """Validate that generated outline matches constraints."""
+        """Validate and normalize outline structure.
+        
+        Handles both old format (slide_titles: string[]) and new format
+        (slides: [{title, type}]) gracefully.
+        """
         if not outline.get("description"):
             raise RuntimeError("Outline missing description")
         
@@ -226,27 +241,44 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
                 if module.get("module_order") != module_idx + 1:
                     module["module_order"] = module_idx + 1
                 
-                slide_titles = module.get("slide_titles", [])
+                # Normalize: convert old slide_titles format to new slides format
+                if "slide_titles" in module and "slides" not in module:
+                    raw = module.pop("slide_titles")
+                    normalized = []
+                    for i, item in enumerate(raw):
+                        if isinstance(item, str):
+                            stype = "quiz" if i == len(raw) - 1 else "content"
+                            normalized.append({"title": item, "type": stype})
+                        elif isinstance(item, dict):
+                            normalized.append(item)
+                    module["slides"] = normalized
                 
-                # Check for intro slides exception
+                slides = module.get("slides", [])
+                
                 expected_slides = request.slides_per_module
                 if (request.include_standard_intro_slides and 
                     level_idx == 0 and module_idx == 0):
-                    # First module should have 3 extra slides
-                    if len(slide_titles) == expected_slides + 3:
+                    if len(slides) == expected_slides + 2:
+                        expected_slides += 2
+                    elif len(slides) == expected_slides + 3:
                         expected_slides += 3
-                    elif len(slide_titles) == expected_slides:
-                        # AI failed to add them, we might inject them later or warn
-                        pass
 
-                if len(slide_titles) != expected_slides:
-                    # Allow a little flexibility if AI added intro slides or not
-                    if not (request.include_standard_intro_slides and len(slide_titles) >= expected_slides):
-                         raise RuntimeError(
+                if len(slides) < expected_slides:
+                    if not (request.include_standard_intro_slides and len(slides) >= request.slides_per_module):
+                        logger.warning(
                             f"Module {module_idx + 1} in Level {level_idx + 1} "
-                            f"has {len(slide_titles)} slides, "
-                            f"expected {expected_slides}"
+                            f"has {len(slides)} slides, expected {expected_slides}. Allowing."
                         )
+                
+                # Ensure each slide entry has title and type
+                for si, s in enumerate(slides):
+                    if isinstance(s, str):
+                        slides[si] = {"title": s, "type": "content"}
+                    elif isinstance(s, dict):
+                        if "title" not in s:
+                            s["title"] = f"Slide {si + 1}"
+                        if "type" not in s:
+                            s["type"] = "quiz" if si == len(slides) - 1 else "content"
     
     # =========================================================================
     # Parallel Slide Generation with Incremental Saving
@@ -280,15 +312,21 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
         
         for level_data in outline["levels"]:
             for module_data in level_data["modules"]:
-                for slide_title in module_data["slide_titles"]:
+                slides_list = module_data.get("slides", [])
+                for slide_entry in slides_list:
+                    if isinstance(slide_entry, str):
+                        slide_entry = {"title": slide_entry, "type": "content"}
                     task_info = {
-                        "slide_title": slide_title,
+                        "slide_title": slide_entry.get("title", "Untitled"),
+                        "slide_type": slide_entry.get("type", "content"),
                         "module_title": module_data["module_title"],
                         "level_title": level_data["level_title"],
                         "level_order": level_data["level_order"],
                         "module_order": module_data["module_order"]
                     }
                     slide_tasks.append(task_info)
+        
+        total_slides = len(slide_tasks)
         
         # Generate all slides with concurrency limit
         slides_completed = 0
@@ -301,8 +339,12 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
             
             async with self._semaphore:
                 try:
-                    slide = await self._generate_single_slide(task_info, request)
+                    if task_info.get("slide_type") == "quiz":
+                        slide = await self._generate_quiz_slide(task_info, request)
+                    else:
+                        slide = await self._generate_single_slide(task_info, request)
                     slide["slide_title"] = task_info["slide_title"]
+                    slide["slide_type"] = task_info.get("slide_type", "content")
                     
                     # Save incrementally
                     if slide_save_callback:
@@ -389,17 +431,19 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
                     "slides": []
                 }
                 
-                for slide_title in module_data["slide_titles"]:
+                for slide_entry in module_data.get("slides", []):
+                    if isinstance(slide_entry, str):
+                        slide_entry = {"title": slide_entry, "type": "content"}
                     if slide_index in results:
                         module["slides"].append(results[slide_index])
                     else:
-                        # Create placeholder for missing slides
                         placeholder = self._create_placeholder_slide({
-                            "slide_title": slide_title,
+                            "slide_title": slide_entry.get("title", "Untitled"),
                             "module_title": module_data["module_title"],
                             "level_title": level_data["level_title"]
                         }, request)
-                        placeholder["slide_title"] = slide_title
+                        placeholder["slide_title"] = slide_entry.get("title", "Untitled")
+                        placeholder["slide_type"] = slide_entry.get("type", "content")
                         module["slides"].append(placeholder)
                     slide_index += 1
                 
@@ -439,14 +483,20 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
                     logger.info(f"Retry {attempt + 1} for '{task_info['slide_title']}' after {delay}s delay")
                     await asyncio.sleep(delay)
                 
+                slide_sys = self._get_slide_system_prompt(target_words)
+                if request.course_prompt:
+                    slide_sys += f"\n\nADDITIONAL CONTENT INSTRUCTIONS:\n{request.course_prompt}"
+                if request.voiceover_prompt:
+                    slide_sys += f"\n\nVOICEOVER STYLE INSTRUCTIONS:\n{request.voiceover_prompt}"
+                
                 response = await self._client.chat.completions.create(
                     model=self._model,
                     messages=[
-                        {"role": "system", "content": self._get_slide_system_prompt(target_words)},
+                        {"role": "system", "content": slide_sys},
                         {"role": "user", "content": prompt}
                     ],
                     response_format={"type": "json_object"},
-                    max_completion_tokens=4000  # Large enough for comprehensive content
+                    max_completion_tokens=4000
                 )
                 
                 # Track token usage
@@ -535,8 +585,101 @@ Generate the complete outline now. Remember: EXACTLY {request.levels_count} leve
             "visual_prompt": f"Professional educational illustration showing concepts related to {title}, "
                             f"suitable for a {request.course_level} level course",
             "estimated_duration_sec": request.target_slide_duration_sec,
-            "_placeholder": True  # Mark as placeholder for potential regeneration
+            "_placeholder": True
         }
+    
+    async def _generate_quiz_slide(
+        self,
+        task_info: dict,
+        request: CourseGenerationRequest
+    ) -> dict:
+        """Generate an inline quiz slide with 1-2 questions."""
+        prompt = f"""Generate an inline module check quiz for:
+
+COURSE: {request.course_title}
+LEVEL: {task_info['level_title']}
+MODULE: {task_info['module_title']}
+SLIDE TITLE: {task_info['slide_title']}
+
+This is a non-graded knowledge check at the end of the module.
+"""
+        system_prompt = """You are an expert instructional assessment designer.
+
+Generate a quick knowledge-check quiz slide for the end of a learning module.
+This is NOT a formal assessment - it is a lightweight check-in to reinforce learning.
+
+Return valid JSON with these fields:
+{
+    "slide_text": "Brief 1-2 sentence context paragraph introducing the check",
+    "quiz_question": "Clear, specific question testing a key concept from this module",
+    "quiz_options": ["Option A", "Option B", "Option C", "Option D"],
+    "quiz_correct_index": 0,
+    "quiz_explanation": "Brief explanation of why the correct answer is right (2-3 sentences)"
+}
+
+RULES:
+- Question must directly relate to the module topic
+- All 4 options must be plausible
+- quiz_correct_index is zero-based (0-3)
+- Explanation should be educational and reinforce the correct concept
+- Keep slide_text very brief (1-2 sentences max)"""
+
+        if request.course_prompt:
+            system_prompt += f"\n\nADDITIONAL INSTRUCTIONS:\n{request.course_prompt}"
+
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"},
+                max_completion_tokens=1000
+            )
+            
+            if self._cost_tracker and response.usage:
+                self._cost_tracker.add_text_generation(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    model=self._model,
+                    label=f"quiz_{task_info.get('slide_title', 'unknown')[:30]}"
+                )
+            
+            content = response.choices[0].message.content
+            if not content:
+                raise RuntimeError("Empty quiz response")
+            
+            data = json.loads(content)
+            return {
+                "slide_type": "quiz",
+                "slide_text": data.get("slide_text", "Test your knowledge from this module."),
+                "quiz_question": data.get("quiz_question", ""),
+                "quiz_options": data.get("quiz_options", ["A", "B", "C", "D"]),
+                "quiz_correct_index": data.get("quiz_correct_index", 0),
+                "quiz_explanation": data.get("quiz_explanation", ""),
+                "voiceover_script": "",
+                "visual_prompt": "",
+                "estimated_duration_sec": 30,
+            }
+        except Exception as e:
+            logger.error(f"Quiz slide generation failed: {e}")
+            return {
+                "slide_type": "quiz",
+                "slide_text": f"Quick check on {task_info['module_title']}.",
+                "quiz_question": f"Which of the following best describes a key concept from {task_info['module_title']}?",
+                "quiz_options": [
+                    "All of the above concepts apply",
+                    "Only the first concept applies",
+                    "None of the concepts apply",
+                    "The concepts are unrelated"
+                ],
+                "quiz_correct_index": 0,
+                "quiz_explanation": f"This module covered several interconnected concepts within {task_info['module_title']}.",
+                "voiceover_script": "",
+                "visual_prompt": "",
+                "estimated_duration_sec": 30,
+            }
     
     def _get_slide_system_prompt(self, target_words: int) -> str:
         """System prompt for slide content generation."""
@@ -569,6 +712,10 @@ STRICT REQUIREMENTS:
    - Include: subject matter, setting, colors, lighting, perspective
    - DO NOT use "..." or truncate - write the FULL description
    - Must be professional and suitable for corporate training
+   - COLLAGE RULE: If the slide compares 2+ concepts, processes, or items side-by-side,
+     describe a split/collage layout (e.g. "Split image: left side shows X, right side
+     shows Y, divided by a clean vertical line"). Only use this when multi-concept
+     comparison genuinely aids comprehension.
 
 OUTPUT JSON FORMAT:
 {{
@@ -680,7 +827,8 @@ Generate complete, real content."""
         course_content: dict[str, Any],
         pass_percentage: int = 85,
         questions_per_level: int = 3,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        course_prompt: Optional[str] = None
     ) -> dict[str, Any]:
         """
         Generate course assessment based on content.
@@ -711,17 +859,20 @@ Generate complete, real content."""
         )
         
         try:
+            assessment_sys = self._get_assessment_system_prompt()
+            if course_prompt:
+                assessment_sys += f"\n\nADDITIONAL INSTRUCTIONS:\n{course_prompt}"
+            
             response = await self._client.chat.completions.create(
                 model=self._model,
                 messages=[
-                    {"role": "system", "content": self._get_assessment_system_prompt()},
+                    {"role": "system", "content": assessment_sys},
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"},
                 max_completion_tokens=3000
             )
             
-            # Track token usage
             if self._cost_tracker and response.usage:
                 self._cost_tracker.add_text_generation(
                     prompt_tokens=response.usage.prompt_tokens,

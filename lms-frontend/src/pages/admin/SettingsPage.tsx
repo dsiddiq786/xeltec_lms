@@ -2,8 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
-import { Flag, Trash2, Plus, ToggleLeft, ToggleRight, BookOpen, Mail, FileText, ChevronDown, ChevronRight, Send } from 'lucide-react';
+import { Flag, Trash2, Plus, ToggleLeft, ToggleRight, BookOpen, Mail, FileText, ChevronDown, ChevronRight, Send, Sparkles } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 
 const TEMPLATE_KEYS = [
     { key: 'email_verification', label: 'Email Verification', description: 'Sent when a new user registers to verify their email', variables: '{{link}}, {{app_name}}' },
@@ -49,6 +50,7 @@ const DEFAULT_TEMPLATES: Record<string, { subject: string; body: string }> = {
 export function SettingsPage() {
     const queryClient = useQueryClient();
     const [newKey, setNewKey] = useState('');
+    const [deleteFlagTarget, setDeleteFlagTarget] = useState<string | null>(null);
     const [strictModeDefault, setStrictModeDefault] = useState(true);
     const [requireAllModules, setRequireAllModules] = useState(true);
     const [passingScore, setPassingScore] = useState(70);
@@ -58,6 +60,12 @@ export function SettingsPage() {
     const [emailTemplates, setEmailTemplates] = useState<Record<string, { subject: string; body: string }>>({});
     const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
     const [testEmail, setTestEmail] = useState('');
+
+    const [aiCoursePrompt, setAiCoursePrompt] = useState('');
+    const [aiImagePrompt, setAiImagePrompt] = useState('');
+    const [aiVoiceoverPrompt, setAiVoiceoverPrompt] = useState('');
+    const [aiDefaultVoice, setAiDefaultVoice] = useState('alloy');
+    const [aiDefaultModel, setAiDefaultModel] = useState('tts-1');
 
     const { data: siteSettings } = useQuery({
         queryKey: ['site-settings'],
@@ -82,6 +90,14 @@ export function SettingsPage() {
             if (es.templates) {
                 setEmailTemplates(es.templates);
             }
+        }
+        if (siteSettings?.ai_generation_settings) {
+            const ai = siteSettings.ai_generation_settings;
+            setAiCoursePrompt(ai.course_prompt || '');
+            setAiImagePrompt(ai.image_prompt || '');
+            setAiVoiceoverPrompt(ai.voiceover_prompt || '');
+            setAiDefaultVoice(ai.default_tts_voice || 'alloy');
+            setAiDefaultModel(ai.default_tts_model || 'tts-1');
         }
     }, [siteSettings]);
 
@@ -118,6 +134,25 @@ export function SettingsPage() {
             queryClient.invalidateQueries({ queryKey: ['site-settings'] });
         },
         onError: () => toast.error('Failed to save email settings'),
+    });
+
+    const saveAiSettings = useMutation({
+        mutationFn: async () => {
+            await api.put('/site-settings/ai_generation_settings', {
+                value: {
+                    course_prompt: aiCoursePrompt || undefined,
+                    image_prompt: aiImagePrompt || undefined,
+                    voiceover_prompt: aiVoiceoverPrompt || undefined,
+                    default_tts_voice: aiDefaultVoice,
+                    default_tts_model: aiDefaultModel,
+                },
+            });
+        },
+        onSuccess: () => {
+            toast.success('AI generation settings saved');
+            queryClient.invalidateQueries({ queryKey: ['site-settings'] });
+        },
+        onError: () => toast.error('Failed to save AI settings'),
     });
 
     const sendTestMut = useMutation({
@@ -176,6 +211,13 @@ export function SettingsPage() {
 
     return (
         <div>
+            <ConfirmDialog
+                open={!!deleteFlagTarget}
+                title="Delete Feature Flag?"
+                message={`Are you sure you want to delete the "${deleteFlagTarget || ''}" feature flag?`}
+                onConfirm={() => { if (deleteFlagTarget) deleteMut.mutate(deleteFlagTarget); setDeleteFlagTarget(null); }}
+                onCancel={() => setDeleteFlagTarget(null)}
+            />
             <div className="mb-6">
                 <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
                 <p className="text-sm text-gray-500 mt-1">Feature flags and system configuration</p>
@@ -331,6 +373,92 @@ export function SettingsPage() {
                 </div>
             </div>
 
+            {/* AI Course Generation Settings */}
+            <div className="bs-card p-6 mb-6">
+                <h2 className="text-base font-semibold text-gray-900 mb-1 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-[var(--bs-teal)]" />
+                    AI Course Generation
+                </h2>
+                <p className="text-xs text-gray-500 mb-5">Default prompts and voice settings for AI-generated courses. These can be overridden per course.</p>
+
+                <div className="space-y-4">
+                    <div className="p-4 rounded-xl bg-gray-50">
+                        <label className="block text-sm font-medium text-gray-900 mb-1">Master Course Prompt</label>
+                        <p className="text-[11px] text-gray-400 mb-2">Appended to every course generation request. Use to set tone, audience, or domain-specific instructions.</p>
+                        <textarea
+                            className="bs-input !py-2 !text-sm font-mono !min-h-[100px]"
+                            value={aiCoursePrompt}
+                            onChange={(e) => setAiCoursePrompt(e.target.value)}
+                            placeholder="e.g., Focus on practical examples and real-world scenarios. Use a professional but conversational tone..."
+                        />
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-gray-50">
+                        <label className="block text-sm font-medium text-gray-900 mb-1">Master Image Style Prompt</label>
+                        <p className="text-[11px] text-gray-400 mb-2">Prepended to every slide image prompt for consistent visual style across the course.</p>
+                        <textarea
+                            className="bs-input !py-2 !text-sm font-mono !min-h-[80px]"
+                            value={aiImagePrompt}
+                            onChange={(e) => setAiImagePrompt(e.target.value)}
+                            placeholder="e.g., Modern flat illustration style, corporate blue and teal color scheme, clean white background, professional characters..."
+                        />
+                    </div>
+
+                    <div className="p-4 rounded-xl bg-gray-50">
+                        <label className="block text-sm font-medium text-gray-900 mb-1">Voiceover Style Prompt</label>
+                        <p className="text-[11px] text-gray-400 mb-2">Additional instructions for voiceover script generation (tone, pacing, style).</p>
+                        <textarea
+                            className="bs-input !py-2 !text-sm font-mono !min-h-[80px]"
+                            value={aiVoiceoverPrompt}
+                            onChange={(e) => setAiVoiceoverPrompt(e.target.value)}
+                            placeholder="e.g., Use a warm, encouraging tone. Include brief pauses between sections. Avoid jargon..."
+                        />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="p-4 rounded-xl bg-gray-50">
+                            <label className="block text-sm font-medium text-gray-900 mb-1">Default TTS Voice</label>
+                            <p className="text-[11px] text-gray-400 mb-2">OpenAI voice used for voiceover generation</p>
+                            <select
+                                value={aiDefaultVoice}
+                                onChange={(e) => setAiDefaultVoice(e.target.value)}
+                                className="bs-input !py-2 !text-sm"
+                            >
+                                <option value="alloy">Alloy - Neutral, balanced</option>
+                                <option value="echo">Echo - Warm, conversational</option>
+                                <option value="fable">Fable - Expressive, storytelling</option>
+                                <option value="onyx">Onyx - Deep, authoritative</option>
+                                <option value="nova">Nova - Friendly, upbeat</option>
+                                <option value="shimmer">Shimmer - Clear, gentle</option>
+                            </select>
+                        </div>
+
+                        <div className="p-4 rounded-xl bg-gray-50">
+                            <label className="block text-sm font-medium text-gray-900 mb-1">Default TTS Model</label>
+                            <p className="text-[11px] text-gray-400 mb-2">Quality tier for voice synthesis</p>
+                            <select
+                                value={aiDefaultModel}
+                                onChange={(e) => setAiDefaultModel(e.target.value)}
+                                className="bs-input !py-2 !text-sm"
+                            >
+                                <option value="tts-1">TTS-1 - Standard quality, lower cost</option>
+                                <option value="tts-1-hd">TTS-1-HD - High definition, better quality</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                        <button
+                            onClick={() => saveAiSettings.mutate()}
+                            disabled={saveAiSettings.isPending}
+                            className="btn-lime !py-2.5"
+                        >
+                            {saveAiSettings.isPending ? 'Saving...' : 'Save AI Settings'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             {/* Feature Flags */}
             <div className="bs-card p-6 mb-6">
                 <h2 className="text-base font-semibold text-gray-900 mb-4">Feature Flags</h2>
@@ -381,7 +509,7 @@ export function SettingsPage() {
                                         }
                                     </button>
                                     <button
-                                        onClick={() => deleteMut.mutate(flag.key)}
+                                        onClick={() => setDeleteFlagTarget(flag.key)}
                                         className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
                                     >
                                         <Trash2 className="w-4 h-4" />

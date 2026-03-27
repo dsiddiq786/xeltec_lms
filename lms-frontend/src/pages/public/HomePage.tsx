@@ -144,7 +144,6 @@ export function HomePage() {
     const ARTICLES = settings?.articles?.items || DEFAULT_ARTICLES;
     const ORG_LOGOS = settings?.trusted_by?.logos || DEFAULT_ORG_LOGOS;
     const community = settings?.community || {};
-    const ctaBanner = settings?.cta_banner || {};
 
     const featuredCourses = catalogData?.data?.slice(0, 4) || [];
     const bestSelling = catalogData?.data || [];
@@ -234,7 +233,7 @@ export function HomePage() {
 
                     {/* Stats inside hero */}
                     <div className="mt-10 grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {STATS.map((stat) => (
+                        {STATS.map((stat: any) => (
                             <div
                                 key={stat.value}
                                 className="flex items-center gap-3 px-4 py-3 rounded-xl"
@@ -271,7 +270,7 @@ export function HomePage() {
 
                     {/* Category tab pills */}
                     <div className="flex flex-wrap justify-center gap-2.5 mb-6">
-                        {CATEGORIES.map((cat, i) => {
+                        {CATEGORIES.map((cat: any, i: number) => {
                             const isActive = activeCategory === i;
                             return (
                                 <button
@@ -418,7 +417,7 @@ export function HomePage() {
                             </p>
                         </div>
                         <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-4">
-                            {ORG_LOGOS.map((org) => (
+                            {ORG_LOGOS.map((org: any) => (
                                 <div
                                     key={org}
                                     className="bg-white rounded-xl p-5 flex items-center justify-center h-20 border border-gray-100"
@@ -552,7 +551,7 @@ export function HomePage() {
 
                         <div className="flex-1 flex items-center">
                             <div className="relative w-full flex gap-5 overflow-hidden">
-                                {TESTIMONIALS.map((t, i) => {
+                                {TESTIMONIALS.map((t: any, i: number) => {
                                     const offset = i - testimonialIdx;
                                     return (
                                         <motion.div
@@ -622,7 +621,7 @@ export function HomePage() {
                         </p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        {ARTICLES.map((article, i) => (
+                        {ARTICLES.map((article: any, i: number) => (
                             <motion.div
                                 key={i}
                                 initial={{ opacity: 0, y: 20 }}

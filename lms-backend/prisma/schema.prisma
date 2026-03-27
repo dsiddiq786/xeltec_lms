@@ -1,0 +1,369 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  INDIVIDUAL
+  BUSINESS_ADMIN
+  EMPLOYEE
+  ADMIN
+}
+
+enum EmployeeStatus {
+  INVITED
+  PENDING_APPROVAL
+  ACTIVE
+  DEACTIVATED
+}
+
+enum KycStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  INFO_REQUESTED
+}
+
+enum SubscriptionCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum EnrollmentStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum PurchaseRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String    @unique
+  password_hash     String
+  first_name        String?
+  last_name         String?
+  phone             String?
+  role              Role
+  is_active         Boolean   @default(true)
+  email_verified    Boolean   @default(false)
+  email_verified_at DateTime?
+  deleted_at        DateTime?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  employees                Employee[]
+  enrollments              Enrollment[]
+  transactions             Transaction[]
+  purchase_requests        PurchaseRequest[]
+  email_verification_tokens EmailVerificationToken[]
+  password_reset_tokens     PasswordResetToken[]
+
+  @@index([email])
+}
+
+model EmailVerificationToken {
+  id         String    @id @default(uuid())
+  user_id    String
+  token      String    @unique
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+  @@index([token])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid())
+  user_id    String
+  token      String    @unique
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime  @default(now())
+
+  user User @relation(fields: [user_id], references: [id])
+
+  @@index([user_id])
+  @@index([token])
+}
+
+model InviteToken {
+  id          String    @id @default(uuid())
+  email       String
+  business_id String
+  token       String    @unique
+  expires_at  DateTime
+  used_at     DateTime?
+  created_at  DateTime  @default(now())
+
+  business Business @relation(fields: [business_id], references: [id])
+
+  @@index([token])
+  @@index([business_id])
+}
+
+model Business {
+  id                    String            @id @default(uuid())
+  name                  String
+  owner_id              String?
+  signup_code           String?           @unique
+  subscription_status   String
+  billing_cycle         SubscriptionCycle
+  seats_total           Int
+  seats_used            Int               @default(0)
+  is_active             Boolean           @default(true)
+  kyc_status            KycStatus         @default(PENDING)
+  stripe_customer_id    String?
+  stripe_subscription_id String?
+  created_at            DateTime          @default(now())
+  updated_at            DateTime          @updatedAt
+  deleted_at            DateTime?
+
+  employees          Employee[]
+  transactions       Transaction[]
+  invite_tokens      InviteToken[]
+  kyc                BusinessKyc?
+  course_purchases   BusinessCoursePurchase[]
+  purchase_requests  PurchaseRequest[]
+}
+
+model BusinessKyc {
+  id                  String    @id @default(uuid())
+  business_id         String    @unique
+  company_registration_number String?
+  tax_id              String?
+  industry            String?
+  website             String?
+  address_line_1      String?
+  address_line_2      String?
+  city                String?
+  postcode            String?
+  country             String?
+  contact_first_name  String?
+  contact_last_name   String?
+  contact_email       String?
+  contact_phone       String?
+  contact_job_title   String?
+  admin_notes         String?
+  reviewed_by         String?
+  reviewed_at         DateTime?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  business  Business      @relation(fields: [business_id], references: [id])
+  documents KycDocument[]
+}
+
+model KycDocument {
+  id             String   @id @default(uuid())
+  kyc_id         String
+  document_type  String
+  file_name      String
+  file_url       String
+  uploaded_at    DateTime @default(now())
+
+  kyc BusinessKyc @relation(fields: [kyc_id], references: [id])
+
+  @@index([kyc_id])
+}
+
+model Employee {
+  id          String         @id @default(uuid())
+  business_id String
+  user_id     String
+  status      EmployeeStatus
+  created_at  DateTime       @default(now())
+  deleted_at  DateTime?
+
+  business Business @relation(fields: [business_id], references: [id])
+  user     User     @relation(fields: [user_id], references: [id])
+
+  @@unique([business_id, user_id])
+  @@index([business_id])
+  @@index([user_id])
+}
+
+model BusinessCoursePurchase {
+  id              String   @id @default(uuid())
+  business_id     String
+  course_id       String
+  seats_purchased Int
+  seats_assigned  Int      @default(0)
+  created_at      DateTime @default(now())
+
+  business Business @relation(fields: [business_id], references: [id])
+  course   Course   @relation(fields: [course_id], references: [id])
+
+  @@unique([business_id, course_id])
+  @@index([business_id])
+  @@index([course_id])
+}
+
+model Course {
+  id               String        @id @default(uuid())
+  title            String
+  description      String?
+  base_price       Decimal
+  seat_price       Decimal?
+  thumbnail_url    String?
+  category         String?
+  difficulty_level String?
+  is_published     Boolean       @default(false)
+  published_at     DateTime?
+  source_type      String?
+  source_draft_id  String?
+  generator_job_id String?
+  created_at       DateTime      @default(now())
+  updated_at       DateTime      @updatedAt
+  deleted_at       DateTime?
+
+  versions           CourseVersion[]
+  business_purchases BusinessCoursePurchase[]
+  purchase_requests  PurchaseRequest[]
+
+  @@index([is_published])
+}
+
+model CourseVersion {
+  id               String   @id @default(uuid())
+  course_id        String
+  version_number   Int
+  content_snapshot Json
+  created_at       DateTime @default(now())
+  deleted_at       DateTime?
+
+  course      Course       @relation(fields: [course_id], references: [id])
+  enrollments Enrollment[]
+
+  @@unique([course_id, version_number])
+  @@index([course_id])
+}
+
+model Enrollment {
+  id                String           @id @default(uuid())
+  user_id           String
+  course_version_id String
+  status            EnrollmentStatus
+  strict_mode       Boolean          @default(true)
+  created_at        DateTime         @default(now())
+  deleted_at        DateTime?
+
+  user                User                @relation(fields: [user_id], references: [id])
+  course_version      CourseVersion       @relation(fields: [course_version_id], references: [id])
+  progress            Progress?
+  assessment_attempts AssessmentAttempt[]
+  certificate         Certificate?
+
+  @@index([user_id])
+  @@index([course_version_id])
+}
+
+model Progress {
+  id                  String   @id @default(uuid())
+  enrollment_id       String   @unique
+  level_index         Int      @default(0)
+  module_index        Int      @default(0)
+  slide_index         Int      @default(0)
+  progress_percentage Float    @default(0)
+  last_accessed_at    DateTime @default(now())
+  deleted_at          DateTime?
+
+  enrollment          Enrollment @relation(fields: [enrollment_id], references: [id])
+
+  @@index([enrollment_id])
+}
+
+model AssessmentAttempt {
+  id             String   @id @default(uuid())
+  enrollment_id  String
+  score          Float
+  passed         Boolean
+  attempt_number Int
+  answers        Json?
+  created_at     DateTime @default(now())
+  deleted_at     DateTime?
+
+  enrollment     Enrollment @relation(fields: [enrollment_id], references: [id])
+  
+  @@index([enrollment_id])
+}
+
+model Certificate {
+  id                 String   @id @default(uuid())
+  enrollment_id      String   @unique
+  certificate_number String   @unique
+  issued_at          DateTime @default(now())
+  deleted_at         DateTime?
+
+  enrollment         Enrollment @relation(fields: [enrollment_id], references: [id])
+
+  @@index([enrollment_id])
+}
+
+model Transaction {
+  id                String   @id @default(uuid())
+  user_id           String?
+  business_id       String?
+  stripe_session_id String?
+  stripe_event_id   String   @unique
+  amount            Decimal
+  status            String
+  created_at        DateTime @default(now())
+  deleted_at        DateTime?
+
+  user     User?     @relation(fields: [user_id], references: [id])
+  business Business? @relation(fields: [business_id], references: [id])
+
+  @@index([user_id])
+  @@index([business_id])
+}
+
+model FeatureFlag {
+  key     String  @id
+  enabled Boolean
+  deleted_at DateTime?
+}
+
+model SiteSetting {
+  key        String   @id
+  value      Json
+  updated_at DateTime @updatedAt
+}
+
+model PurchaseRequest {
+  id                String                @id @default(uuid())
+  user_id           String
+  business_id       String?
+  course_id         String
+  course_version_id String
+  request_type      String
+  seats_requested   Int                   @default(1)
+  original_price    Decimal
+  approved_price    Decimal?
+  status            PurchaseRequestStatus @default(PENDING)
+  admin_notes       String?
+  reviewed_by       String?
+  reviewed_at       DateTime?
+  created_at        DateTime              @default(now())
+
+  user     User      @relation(fields: [user_id], references: [id])
+  business Business? @relation(fields: [business_id], references: [id])
+  course   Course    @relation(fields: [course_id], references: [id])
+
+  @@index([user_id])
+  @@index([business_id])
+  @@index([course_id])
+  @@index([status])
+}

@@ -1,7 +1,7 @@
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api, CourseDocument } from '@/api/client';
+
+
 import { GeneratorForm } from '@/components/course/GeneratorForm';
 import { JobProgressPanel } from '@/components/course/JobProgressPanel';
 import { useNavigate } from 'react-router-dom';

@@ -10,31 +10,28 @@ export const getStaticUrl = (path: string | null) => {
     if (!path) return '';
     // Check if already absolute
     if (path.startsWith('http')) return path;
-    // If no static prefix, assume it needs one
-    // Backend returns "Generated_Courses/..." but static mount is "/static/Generated_Courses"
-    // Actually wait, let's verify backend mount.
-    // Backend Mount: app.mount("/static", StaticFiles(directory="Generated_Courses"), name="static")
-    // Backend Return: "Generated_Courses/Title/Level/..." (relative to base dir)
 
-    // So if backend returns "Generated_Courses/foo.png", we need "http://localhost:8000/static/foo.png" ???
-    // Wait, backend mount serves "Generated_Courses" folder AS "/static".
-    // So "/static/foo.png" maps to "Generated_Courses/foo.png".
-    // But backend return includes "Generated_Courses/" prefix in the relative path?
+    // Backend returns "Generated_Courses/..." but static mount is "/static" mapping to "Generated_Courses"
+    // So we need to strip "Generated_Courses/" from the path
+    const cleanPath = path.replace(/^Generated_Courses[\/\\]/, '').replace(/\\/g, '/');
 
-    // Let's check FileStorageService.get_relative_path
-    // return os.path.relpath(absolute_path, self._base_dir)
-    // Base dir IS "Generated_Courses" root.
-    // So relative path is just "Title/Level/..." (NO "Generated_Courses" prefix).
+    let baseUrl = import.meta.env.VITE_API_URL;
 
-    // EXCEPT: create_course_directory uses course_dir_name = ...
-    // os.path.join(self._base_dir, course_dir_name)
-    // So relative path IS "Title_JobId/Level/..."
+    // Use empty string for relative paths in PROD if URL is not set, or localhost in DEV
+    if (baseUrl === undefined || baseUrl === null) {
+        baseUrl = import.meta.env.PROD ? '' : 'http://localhost:8000';
+    }
 
-    // Therefore: URL = baseURL + "/static/" + relativePath
+    // Fix: If baseUrl is '/', make it empty to avoid '//static' which browsers interpret as "scheme-relative URL to domain 'static'"
+    if (baseUrl === '/') {
+        baseUrl = '';
+    }
 
-    // Handling both cases just to be safe
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    const cleanPath = path.replace(/^Generated_Courses\//, '');
+    // Strip trailing slash if present
+    if (baseUrl.endsWith('/')) {
+        baseUrl = baseUrl.slice(0, -1);
+    }
+
     return `${baseUrl}/static/${cleanPath}`;
 };
 

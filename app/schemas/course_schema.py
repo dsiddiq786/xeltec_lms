@@ -19,40 +19,62 @@ class Slide(BaseModel):
     """
     Individual slide within a module.
     
-    CONTENT RULES:
-    - slide_text: Long-form instructional content (NOT summaries)
-    - voiceover_script: Natural spoken narration matching duration constraints
-    - visual_prompt: Descriptive prompt for visual generation
-    - estimated_duration_sec: Calculated from actual word count
-    - image_url: Path to the generated image (local or S3)
-    - voiceover_audio_url: Path to the generated audio (local or S3)
+    Two types:
+      - "content": instructional slide with text, voiceover, image
+      - "quiz": inline module-check with question + options (no media)
     """
     slide_title: str = Field(
         ...,
         description="Concise, descriptive title for the slide"
     )
+
+    slide_type: str = Field(
+        default="content",
+        description="Slide type: 'content' or 'quiz'"
+    )
     
     slide_text: str = Field(
-        ...,
-        description="Long-form instructional content displayed on the slide"
+        default="",
+        description="Long-form instructional content (content slides) or brief context (quiz slides)"
     )
     
     visual_prompt: str = Field(
-        ...,
-        description="Descriptive prompt for generating slide visuals"
+        default="",
+        description="Descriptive prompt for generating slide visuals (content slides only)"
     )
     
     voiceover_script: str = Field(
-        ...,
-        description="Natural narration script matching target word count"
+        default="",
+        description="Natural narration script matching target word count (content slides only)"
     )
     
     estimated_duration_sec: int = Field(
-        ...,
+        default=30,
         ge=1,
         description="Calculated duration based on voiceover word count"
     )
     
+    # --- Quiz fields (quiz slides only) ---
+    quiz_question: Optional[str] = Field(
+        default=None,
+        description="The question text for quiz slides"
+    )
+
+    quiz_options: Optional[list[str]] = Field(
+        default=None,
+        description="Answer options (typically 4) for quiz slides"
+    )
+
+    quiz_correct_index: Optional[int] = Field(
+        default=None,
+        description="Zero-based index of the correct option"
+    )
+
+    quiz_explanation: Optional[str] = Field(
+        default=None,
+        description="Brief explanation shown after the learner answers"
+    )
+
     # --- Media Asset Paths (populated after generation) ---
     image_url: Optional[str] = Field(
         default=None,

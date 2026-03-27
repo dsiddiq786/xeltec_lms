@@ -1,5 +1,5 @@
 
-import { api, CourseDocument, Slide } from '@/api/client';
+import { api, CourseDocument } from '@/api/client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useToast } from "@/components/ui/use-toast";
 
@@ -10,9 +10,9 @@ export interface CourseUpdateRequest {
 }
 
 export interface SlideUpdateRequest {
-    level_order: int;
-    module_order: int;
-    slide_index: int;
+    level_order: number;
+    module_order: number;
+    slide_index: number;
 
     slide_title?: string;
     slide_text?: string;

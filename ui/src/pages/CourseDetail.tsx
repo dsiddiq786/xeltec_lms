@@ -1,25 +1,24 @@
 
 import * as React from "react"
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api, CourseDocument, Slide, getStaticUrl } from '@/api/client';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Play, Pause, SkipBack, SkipForward, VolumeX, Volume2, Save, FileImage, FileAudio, Video, FileVideo, Eye, Edit3, Trash2, Plus, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
-import { useToast } from "@/components/ui/use-toast"
+import { Play, Pause, SkipBack, SkipForward, VolumeX, Volume2, Save, FileImage, FileAudio, Video, FileVideo, Eye, Edit3, Trash2, Plus, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
+
 import { useCourseEditor } from "@/hooks/useCourseEditor";
 import { Badge } from "@/components/ui/badge";
 
 export default function CourseDetailPage() {
     const { courseId } = useParams<{ courseId: string }>();
     const [activeTab, setActiveTab] = React.useState("editor");
-    const { toast } = useToast();
-    const queryClient = useQueryClient();
+
 
     const { data: course, isLoading, error } = useQuery<CourseDocument>({
         queryKey: ['course', courseId],

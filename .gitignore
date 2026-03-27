@@ -1,5 +1,5 @@
 # =============================================================================
-# AI Course Generator - Git Ignore
+# brickSkill LMS — Git Ignore
 # =============================================================================
 
 # Environment
@@ -69,3 +69,21 @@ Thumbs.db
 
 # Generated course files (images, audio, content)
 Generated_Courses/
+
+# Node
+node_modules/
+
+# SSH keys (NEVER commit)
+sshkeys/
+
+# Uploads (local storage)
+uploads/
+lms-backend/uploads/
+
+# Deploy artifacts
+deploy/project.tar.gz
+deploy/certbot/
+
+# Credentials / notes
+.text
+*.credentials

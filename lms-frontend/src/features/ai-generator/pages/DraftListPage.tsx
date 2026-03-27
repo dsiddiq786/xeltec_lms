@@ -35,7 +35,12 @@ export function DraftListPage() {
             const { data } = await api.get('course-generator/jobs');
             return data;
         },
-        refetchInterval: 3000,
+        refetchInterval: (query) => {
+            const list = query.state.data;
+            if (!list) return false;
+            const hasActive = list.some((j: any) => j.status === 'processing' || j.status === 'queued');
+            return hasActive ? 3000 : false;
+        },
     });
 
     const deleteMut = useMutation({
@@ -57,7 +62,6 @@ export function DraftListPage() {
         onError: (err: any) => toast.error(err?.response?.data?.detail?.message || 'Retry failed'),
     });
 
-    const hasActive = (jobs || []).some((j: any) => j.status === 'processing' || j.status === 'queued');
 
     return (
         <div>
@@ -132,7 +136,11 @@ export function DraftListPage() {
                             const sc = statusConfig[job.status] || statusConfig.queued;
                             const Icon = sc.icon;
                             return (
-                                <tr key={job.job_id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                                <tr
+                                    key={job.job_id}
+                                    className={`border-b border-gray-50 hover:bg-gray-50/50 transition-colors ${job.status === 'completed' && job.course_id ? 'cursor-pointer' : ''}`}
+                                    onClick={() => { if (job.status === 'completed' && job.course_id) navigate(`/admin/ai-generator/${job.course_id}`); }}
+                                >
                                     <td className="px-5 py-4">
                                         <p className="text-sm font-medium text-gray-900">{job.course_title || 'Untitled'}</p>
                                         {job.error_message && (

@@ -2,7 +2,7 @@
 import { api, JobStatusResponse } from '@/api/client';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
+
 import { Loader2, CheckCircle, AlertCircle, Sparkles, Image as ImageIcon, FileText, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState } from 'react';
@@ -38,8 +38,8 @@ export function JobProgressPanel({ jobId, onComplete }: JobProgressPanelProps) {
                 setLogs(prev => [job.progress.current_step, ...prev].slice(0, 5));
             }
 
-            if (job.status === 'completed' && job.result?.course_id) {
-                setTimeout(() => onComplete(job.result!.course_id), 1000);
+            if (job.status === 'completed' && job.course_id) {
+                setTimeout(() => onComplete(job.course_id!), 1000);
             }
         }
     }, [job, onComplete, logs]);
@@ -55,9 +55,9 @@ export function JobProgressPanel({ jobId, onComplete }: JobProgressPanelProps) {
     // Determine active step index based on progress/status (heuristic)
     let activeStepIndex = 0;
     if (job?.status === 'queued') activeStepIndex = 0;
-    else if (job?.progress.percentage < 20) activeStepIndex = 1;
-    else if (job?.progress.percentage < 60) activeStepIndex = 2;
-    else if (job?.progress.percentage < 90) activeStepIndex = 3;
+    else if ((job?.progress?.percentage ?? 0) < 20) activeStepIndex = 1;
+    else if ((job?.progress?.percentage ?? 0) < 60) activeStepIndex = 2;
+    else if ((job?.progress?.percentage ?? 0) < 90) activeStepIndex = 3;
     else if (job?.status === 'completed') activeStepIndex = 4;
 
 

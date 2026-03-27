@@ -34,6 +34,12 @@ class SlideUpdateRequest(BaseModel):
     visual_prompt: Optional[str] = None
     estimated_duration_sec: Optional[int] = None
 
+    # Quiz fields (only relevant for quiz slides)
+    quiz_question: Optional[str] = None
+    quiz_options: Optional[list[str]] = None
+    quiz_correct_index: Optional[int] = None
+    quiz_explanation: Optional[str] = None
+
 class MediaUploadResponse(BaseModel):
     """Response after uploading media."""
     slide_id: str  # level-module-slide identifier

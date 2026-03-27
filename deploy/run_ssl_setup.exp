@@ -1,0 +1,90 @@
+#!/usr/bin/expect
+
+set timeout 600
+set host [lindex $argv 0]
+set user [lindex $argv 1]
+set password [lindex $argv 2]
+
+# 1. Upload updated init-letsencrypt.sh
+spawn scp -o StrictHostKeyChecking=no deploy/init-letsencrypt.sh $user@$host:/opt/lms/deploy/init-letsencrypt.sh
+expect {
+    "password:" { 
+        send "$password\r"
+        expect eof
+    }
+    timeout { puts "SCP timed out"; exit 1 }
+    eof
+}
+
+# 2. Upload updated proxy.conf
+spawn scp -o StrictHostKeyChecking=no deploy/nginx/proxy.conf $user@$host:/opt/lms/deploy/nginx/proxy.conf
+expect {
+    "password:" { 
+        send "$password\r"
+        expect eof
+    }
+    timeout { puts "SCP proxy.conf timed out"; exit 1 }
+    eof
+}
+
+# 3. Clean environment and run script
+spawn ssh -o StrictHostKeyChecking=no $user@$host
+expect {
+    "password:" { 
+        send "$password\r"
+        expect "#"
+    }
+    "root@" { }
+    "#" { }
+    timeout { puts "SSH timed out"; exit 1 }
+}
+
+# Ensure we have a prompt
+# expect "#" # This might be redundant if we matched "#" above but good for safety
+# If we matched "password:", we need to wait for prompt now.
+# Using a simpler loop above with exp_continue handles password, but we need to stop at prompt.
+
+# Let's refine SSH login
+# If password sent, we wait for prompt. If key used, we see prompt immediately.
+
+# Better SSH Login Block
+# The 'exp_continue' loop for password is tricky if we want to break on prompt.
+# Alternative:
+# expect {
+#   "password:" { send "$password\r"; exp_continue }
+#   "#" { }
+# }
+# But we already are inside ssh shell.
+
+send "cd /opt/lms\r"
+expect "#"
+
+# Remove existing certbot data to avoid prompt
+send "rm -rf deploy/certbot\r"
+expect "#"
+
+# Ensure script is executable
+send "chmod +x deploy/init-letsencrypt.sh\r"
+expect "#"
+
+# Run script
+send "./deploy/init-letsencrypt.sh\r"
+
+# Wait for interaction or completion
+expect {
+    "Existing data found" {
+        send "y\r"
+        exp_continue
+    }
+    "Reloading nginx" {
+        puts "SSL setup complete!"
+    }
+    timeout {
+        puts "SSL setup timed out"
+        exit 1
+    }
+}
+
+expect "#"
+send "exit\r"
+expect eof

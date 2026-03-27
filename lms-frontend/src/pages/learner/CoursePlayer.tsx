@@ -1,14 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import {
     ArrowRight, ChevronLeft, ChevronRight,
     Volume2, VolumeX, Menu, X, CheckCircle, Download, BookOpen,
-    Lock, ArrowLeft,
+    Lock, ArrowLeft, Loader2,
 } from 'lucide-react';
+
+function getStaticUrl(path: string | null | undefined): string {
+    if (!path) return '';
+    if (path.startsWith('http') || path.startsWith('/static/') || path.startsWith('/uploads/')) return path;
+    const clean = path.replace(/^Generated_Courses[/\\]/, '').replace(/\\/g, '/');
+    return `/static/${clean}`;
+}
 
 interface ProgressData {
     level_index: number;
@@ -58,6 +65,11 @@ export function CoursePlayer() {
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
     const [showSpeedMenu, setShowSpeedMenu] = useState(false);
     const [showContentPanel, setShowContentPanel] = useState(false);
+    const [slideUnlocked, setSlideUnlocked] = useState(false);
+    const [audioProgress, setAudioProgress] = useState(0);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const DEFAULT_SLIDE_DURATION = 15;
 
     // Assessment state
     const [assessmentAnswers, setAssessmentAnswers] = useState<Record<string, number>>({});
@@ -162,20 +174,23 @@ export function CoursePlayer() {
         return false;
     };
 
-    const goToSlide = (level: number, module: number, slide: number) => {
+    const goToSlide = useCallback((level: number, module: number, slide: number) => {
         setCurrentLevel(level);
         setCurrentModule(module);
         setCurrentSlide(slide);
+        setSlideUnlocked(false);
+        setAudioProgress(0);
+        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
         progressMutation.mutate({ level_index: level, module_index: module, slide_index: slide });
-    };
+    }, [progressMutation]);
 
-    const goNext = () => {
+    const goNext = useCallback(() => {
         if (currentSlide < slides.length - 1) goToSlide(currentLevel, currentModule, currentSlide + 1);
         else if (currentModule < modules.length - 1) goToSlide(currentLevel, currentModule + 1, 0);
         else if (currentLevel < levels.length - 1) goToSlide(currentLevel + 1, 0, 0);
-    };
+    }, [currentSlide, slides.length, currentModule, modules.length, currentLevel, levels.length, goToSlide]);
 
-    const goPrev = () => {
+    const goPrev = useCallback(() => {
         if (currentSlide > 0) goToSlide(currentLevel, currentModule, currentSlide - 1);
         else if (currentModule > 0) {
             const prevModSlides = modules[currentModule - 1]?.slides || [];
@@ -186,7 +201,64 @@ export function CoursePlayer() {
             const lastMod = prevMods[prevMods.length - 1];
             goToSlide(currentLevel - 1, prevMods.length - 1, Math.max(0, (lastMod?.slides?.length || 1) - 1));
         }
-    };
+    }, [currentSlide, currentModule, modules, currentLevel, levels, goToSlide]);
+
+    // Audio management: play/stop audio when slide changes
+    useEffect(() => {
+        if (viewMode !== 'player') return;
+        const audioUrl = getStaticUrl(currentSlideData?.audio_url);
+        const slideDuration = (currentSlideData?.estimated_duration_sec || DEFAULT_SLIDE_DURATION) * 1000;
+        const isStrict = learningState?.strict_mode && !isCompleted;
+        const isQuiz = (currentSlideData?.type || currentSlideData?.slide_type) === 'quiz';
+
+        if (isQuiz) { setSlideUnlocked(true); return; }
+
+        if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+        if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+
+        if (!isStrict) { setSlideUnlocked(true); return; }
+
+        setSlideUnlocked(false);
+        setAudioProgress(0);
+
+        if (audioUrl) {
+            const audio = new Audio(audioUrl);
+            audio.playbackRate = playbackSpeed;
+            audio.muted = isMuted;
+            audioRef.current = audio;
+
+            audio.addEventListener('ended', () => setSlideUnlocked(true));
+            audio.addEventListener('timeupdate', () => {
+                if (audio.duration) setAudioProgress(Math.min(100, (audio.currentTime / audio.duration) * 100));
+            });
+            audio.addEventListener('error', () => {
+                // If audio fails, fallback to timer
+                timerRef.current = setTimeout(() => setSlideUnlocked(true), slideDuration);
+            });
+            audio.play().catch(() => {
+                timerRef.current = setTimeout(() => setSlideUnlocked(true), slideDuration);
+            });
+        } else {
+            // No audio: use estimated duration as timer
+            const elapsed = { t: 0 };
+            const interval = setInterval(() => {
+                elapsed.t += 500;
+                setAudioProgress(Math.min(100, (elapsed.t / slideDuration) * 100));
+                if (elapsed.t >= slideDuration) { clearInterval(interval); setSlideUnlocked(true); }
+            }, 500);
+            timerRef.current = setTimeout(() => { clearInterval(interval); setSlideUnlocked(true); }, slideDuration);
+        }
+
+        return () => {
+            if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+            if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+        };
+    }, [viewMode, currentLevel, currentModule, currentSlide]);
+
+    // Sync mute/speed to playing audio
+    useEffect(() => {
+        if (audioRef.current) { audioRef.current.muted = isMuted; audioRef.current.playbackRate = playbackSpeed; }
+    }, [isMuted, playbackSpeed]);
 
     const isFirstSlide = currentLevel === 0 && currentModule === 0 && currentSlide === 0;
     const isLastSlide = currentLevel === levels.length - 1 && currentModule === modules.length - 1 && currentSlide === slides.length - 1;
@@ -537,7 +609,7 @@ export function CoursePlayer() {
         return count + 1;
     })();
 
-    const slideType = currentSlideData?.type || 'content';
+    const slideType = currentSlideData?.slide_type || currentSlideData?.type || 'content';
 
     return (
         <div className="h-screen flex flex-col" style={{ background: '#e8ede8' }}>
@@ -589,7 +661,7 @@ export function CoursePlayer() {
                 {/* Slide Card */}
                 <div className="w-full max-w-[820px] rounded-2xl overflow-hidden bg-white shadow-lg">
                     {/* Exercise / MCQ slide type */}
-                    {slideType === 'exercise' || slideType === 'mcq' ? (
+                    {slideType === 'exercise' || slideType === 'mcq' || slideType === 'quiz' ? (
                         <ExerciseSlide
                             slide={currentSlideData}
                             onNext={goNext}
@@ -606,6 +678,7 @@ export function CoursePlayer() {
                                 onPrev={goPrev} onNext={goNext}
                                 isFirst={isFirstSlide} isLast={isLastSlide}
                                 current={globalSlideIdx} total={totalSlides}
+                                locked={!slideUnlocked && learningState?.strict_mode && !isCompleted}
                             />
                         </div>
                     ) : (
@@ -613,7 +686,7 @@ export function CoursePlayer() {
                         <div className="flex min-h-[420px]">
                             <div className="w-[45%] relative overflow-hidden flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #e8f5e9, #c8e6c9)' }}>
                                 {currentSlideData?.image_url ? (
-                                    <img src={currentSlideData.image_url} alt="" className="w-full h-full object-cover" />
+                                    <img src={getStaticUrl(currentSlideData.image_url)} alt="" className="w-full h-full object-cover" />
                                 ) : (
                                     <BookOpen className="w-12 h-12 opacity-15" style={{ color: '#035A51' }} />
                                 )}
@@ -621,13 +694,21 @@ export function CoursePlayer() {
                                     onPrev={goPrev} onNext={goNext}
                                     isFirst={isFirstSlide} isLast={isLastSlide}
                                     current={globalSlideIdx} total={totalSlides}
+                                    locked={!slideUnlocked && learningState?.strict_mode && !isCompleted}
                                     compact
                                 />
                             </div>
                             <div className="flex-1 p-8 flex flex-col justify-center">
                                 <h2 className="text-lg font-bold text-gray-900 mb-5">{currentSlideData?.title || 'Slide'}</h2>
-                                <div className="text-sm text-gray-600 leading-relaxed" dangerouslySetInnerHTML={{ __html: currentSlideData?.content || currentSlideData?.text || '' }} />
+                                <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{currentSlideData?.content || currentSlideData?.text || ''}</div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Audio progress bar */}
+                    {learningState?.strict_mode && !isCompleted && !slideUnlocked && slideType !== 'quiz' && (
+                        <div className="h-1 bg-gray-100">
+                            <div className="h-full bg-[#035A51] transition-all duration-300" style={{ width: `${audioProgress}%` }} />
                         </div>
                     )}
 
@@ -638,6 +719,12 @@ export function CoursePlayer() {
                             <div className="text-xs text-gray-400">Slide {globalSlideIdx}: {currentSlideData?.title || ''}</div>
                         </div>
                         <div className="flex items-center gap-4">
+                            {!slideUnlocked && learningState?.strict_mode && !isCompleted && slideType !== 'quiz' && (
+                                <span className="flex items-center gap-1.5 text-xs text-amber-600">
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    {currentSlideData?.audio_url ? 'Listening...' : 'Please wait...'}
+                                </span>
+                            )}
                             <button onClick={() => setIsMuted(!isMuted)} className="text-gray-500 hover:text-gray-700">
                                 {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                             </button>
@@ -677,11 +764,12 @@ export function CoursePlayer() {
 }
 
 /* ── Slide Navigation Overlay ── */
-function SlideNav({ onPrev, onNext, isFirst, isLast, current, total, compact }: {
+function SlideNav({ onPrev, onNext, isFirst, isLast, current, total, compact, locked }: {
     onPrev: () => void; onNext: () => void;
     isFirst: boolean; isLast: boolean;
     current: number; total: number;
     compact?: boolean;
+    locked?: boolean;
 }) {
     const py = compact ? 'py-1.5 px-3 text-xs' : 'py-2 px-4 text-sm';
     return (
@@ -692,9 +780,15 @@ function SlideNav({ onPrev, onNext, isFirst, isLast, current, total, compact }: 
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-semibold" style={{ background: '#CBFF2A', color: '#1a1f25' }}>
                 {current} / {total}
             </div>
-            <button onClick={onNext} disabled={isLast} className={`absolute right-3 bottom-3 flex items-center gap-1 ${py} rounded-lg bg-white/90 border-none cursor-pointer disabled:opacity-30`}>
-                Next <ChevronRight className="w-4 h-4" />
-            </button>
+            {locked ? (
+                <div className={`absolute right-3 bottom-3 flex items-center gap-1 ${py} rounded-lg bg-gray-200/80 text-gray-400 cursor-not-allowed`}>
+                    <Lock className="w-3.5 h-3.5" /> Complete slide
+                </div>
+            ) : (
+                <button onClick={onNext} disabled={isLast} className={`absolute right-3 bottom-3 flex items-center gap-1 ${py} rounded-lg bg-white/90 border-none cursor-pointer disabled:opacity-30`}>
+                    Next <ChevronRight className="w-4 h-4" />
+                </button>
+            )}
         </>
     );
 }
@@ -704,13 +798,17 @@ function ExerciseSlide({ slide, onNext, isLast }: { slide: any; onNext: () => vo
     const [selected, setSelected] = useState<number | null>(null);
     const [submitted, setSubmitted] = useState(false);
 
-    const question = slide?.question || slide?.title || 'Question';
-    const options: string[] = slide?.options || ['Option A', 'Option B', 'Option C', 'Option D'];
-    const correctIdx: number = slide?.correct_option ?? 0;
+    const question = slide?.quiz_question || slide?.question || slide?.title || 'Question';
+    const options: string[] = slide?.quiz_options || slide?.options || ['Option A', 'Option B', 'Option C', 'Option D'];
+    const correctIdx: number = slide?.quiz_correct_index ?? slide?.correct_option ?? 0;
+    const explanation: string = slide?.quiz_explanation || '';
     const isCorrect = selected === correctIdx;
+
+    const contextText = slide?.slide_text;
 
     return (
         <div className="p-8 min-h-[420px] flex flex-col">
+            {contextText && <p className="text-sm text-gray-500 mb-3">{contextText}</p>}
             <h2 className="text-lg font-bold text-gray-900 mb-6">{question}</h2>
             <div className="space-y-3 flex-1">
                 {options.map((opt: string, idx: number) => {
@@ -738,6 +836,7 @@ function ExerciseSlide({ slide, onNext, isLast }: { slide: any; onNext: () => vo
             {submitted && (
                 <div className={`mt-4 p-3 rounded-lg text-sm ${isCorrect ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
                     {isCorrect ? 'Correct!' : `Incorrect. The correct answer is ${String.fromCharCode(65 + correctIdx)}.`}
+                    {explanation && <p className="mt-1 text-gray-600">{explanation}</p>}
                 </div>
             )}
 

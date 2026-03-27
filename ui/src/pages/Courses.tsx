@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
-import { CalendarDays, BookOpen, Clock } from 'lucide-react';
+import { CalendarDays, BookOpen } from 'lucide-react';
 
 export default function CoursesPage() {
     const { data: courses, isLoading, error } = useQuery<CourseDocument[]>({

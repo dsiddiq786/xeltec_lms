@@ -1,0 +1,44 @@
+import { Role } from '@prisma/client';
+
+export const PERMISSIONS: Record<string, Role[]> = {
+    // ── Admin ──
+    VIEW_ADMIN_DASHBOARD: [Role.ADMIN],
+    MANAGE_USERS: [Role.ADMIN],
+    MANAGE_ALL_BUSINESSES: [Role.ADMIN],
+    VIEW_ALL_TRANSACTIONS: [Role.ADMIN],
+    MANAGE_FEATURE_FLAGS: [Role.ADMIN],
+    MANAGE_CERTIFICATE_SETTINGS: [Role.ADMIN],
+    REVIEW_KYC: [Role.ADMIN],
+    VIEW_REPORTS: [Role.ADMIN],
+
+    // ── Course Management ──
+    CREATE_COURSE: [Role.ADMIN],
+    EDIT_COURSE: [Role.ADMIN],
+    COURSE_PUBLISH: [Role.ADMIN],
+    COURSE_UNPUBLISH: [Role.ADMIN],
+    DELETE_COURSE: [Role.ADMIN],
+    VIEW_ALL_COURSES: [Role.ADMIN],
+
+    // ── AI Generator ──
+    ACCESS_AI_GENERATOR: [Role.ADMIN],
+
+    // ── Business ──
+    MANAGE_BUSINESS: [Role.BUSINESS_ADMIN],
+    VIEW_BUSINESS_EMPLOYEES: [Role.BUSINESS_ADMIN],
+    INVITE_EMPLOYEE: [Role.BUSINESS_ADMIN],
+    REMOVE_EMPLOYEE: [Role.BUSINESS_ADMIN],
+    VIEW_BUSINESS_TRANSACTIONS: [Role.BUSINESS_ADMIN],
+    ASSIGN_COURSE_TO_EMPLOYEE: [Role.BUSINESS_ADMIN],
+
+    // ── Enrollment & Learning ──
+    ENROLL_SELF: [Role.INDIVIDUAL, Role.EMPLOYEE],
+    VIEW_OWN_ENROLLMENTS: [Role.INDIVIDUAL, Role.EMPLOYEE, Role.BUSINESS_ADMIN],
+    ACCESS_LEARNING: [Role.INDIVIDUAL, Role.EMPLOYEE],
+    SUBMIT_ASSESSMENT: [Role.INDIVIDUAL, Role.EMPLOYEE],
+
+    // ── Transactions ──
+    VIEW_OWN_TRANSACTIONS: [Role.INDIVIDUAL, Role.BUSINESS_ADMIN],
+
+    // ── Certificates ──
+    VIEW_OWN_CERTIFICATES: [Role.INDIVIDUAL, Role.EMPLOYEE],
+};

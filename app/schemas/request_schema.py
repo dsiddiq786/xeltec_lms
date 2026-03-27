@@ -125,10 +125,62 @@ class CourseGenerationRequest(BaseModel):
         description="Whether to include standard intro slides (Title, Outcomes, Overview) at start"
     )
 
-    
+    # -------------------------------------------------------------------------
+    # AI Prompt Overrides (per-course, loaded from admin defaults)
+    # -------------------------------------------------------------------------
+    course_prompt: Optional[str] = Field(
+        default=None,
+        max_length=5000,
+        description="Custom system prompt for course content generation (overrides admin default)"
+    )
+
+    image_prompt: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Master image style prompt prepended to every slide visual_prompt for visual consistency"
+    )
+
+    voiceover_prompt: Optional[str] = Field(
+        default=None,
+        max_length=2000,
+        description="Custom instructions for voiceover script tone and style"
+    )
+
+    # -------------------------------------------------------------------------
+    # TTS Configuration
+    # -------------------------------------------------------------------------
+    tts_voice: Optional[str] = Field(
+        default=None,
+        description="TTS voice: alloy, echo, fable, onyx, nova, shimmer"
+    )
+
+    tts_model: Optional[str] = Field(
+        default=None,
+        description="TTS model: tts-1 (standard) or tts-1-hd (high definition)"
+    )
+
     # -------------------------------------------------------------------------
     # Validators
     # -------------------------------------------------------------------------
+    @field_validator("tts_voice")
+    @classmethod
+    def validate_tts_voice(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"alloy", "echo", "fable", "onyx", "nova", "shimmer"}
+        if v not in allowed:
+            raise ValueError(f"tts_voice must be one of: {allowed}")
+        return v
+
+    @field_validator("tts_model")
+    @classmethod
+    def validate_tts_model(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        allowed = {"tts-1", "tts-1-hd"}
+        if v not in allowed:
+            raise ValueError(f"tts_model must be one of: {allowed}")
+        return v
     @field_validator("course_level")
     @classmethod
     def validate_course_level(cls, v: str) -> str:

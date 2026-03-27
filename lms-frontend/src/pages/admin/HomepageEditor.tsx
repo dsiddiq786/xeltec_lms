@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
-import { Save, Upload, Plus, Trash2, Image, BookOpen } from 'lucide-react';
+import { Save, Upload, Plus, Trash2, BookOpen } from 'lucide-react';
 import type { Course, PaginatedResponse } from '../../types';
+import { ConfirmDialog } from '../../components/shared/ConfirmDialog';
 
 const SECTION_KEYS = [
     { key: 'hero', label: 'Hero Section' },
@@ -70,6 +71,7 @@ export function HomepageEditor() {
     const [activeSection, setActiveSection] = useState('hero');
     const [formData, setFormData] = useState<Record<string, any>>({});
     const [dirty, setDirty] = useState(false);
+    const [deleteItemTarget, setDeleteItemTarget] = useState<{ section: string; index: number; label: string } | null>(null);
 
     const { data: settings, isLoading } = useQuery({
         queryKey: ['site-settings'],
@@ -113,8 +115,25 @@ export function HomepageEditor() {
 
     const sectionData = formData[activeSection] || {};
 
+    const handleConfirmDeleteItem = () => {
+        if (!deleteItemTarget) return;
+        const { section, index } = deleteItemTarget;
+        const items = (formData[section]?.items || []).filter((_: any, j: number) => j !== index);
+        updateField(section, 'items', items);
+        setDeleteItemTarget(null);
+    };
+
     return (
         <div>
+            <ConfirmDialog
+                open={!!deleteItemTarget}
+                title="Remove Item?"
+                message={`Are you sure you want to remove "${deleteItemTarget?.label || ''}"?`}
+                confirmLabel="Remove"
+                variant="warning"
+                onConfirm={handleConfirmDeleteItem}
+                onCancel={() => setDeleteItemTarget(null)}
+            />
             <div className="flex items-center justify-between mb-6">
                 <div>
                     <h1 className="text-2xl font-bold text-gray-900">Homepage Content</h1>
@@ -210,10 +229,7 @@ export function HomepageEditor() {
                                                 items[i] = { ...items[i], icon: e.target.value };
                                                 updateField('categories', 'items', items);
                                             }} placeholder="Icon name" />
-                                            <button onClick={() => {
-                                                const items = (sectionData.items || []).filter((_: any, j: number) => j !== i);
-                                                updateField('categories', 'items', items);
-                                            }} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                                            <button onClick={() => setDeleteItemTarget({ section: 'categories', index: i, label: item.title || `Category ${i + 1}` })} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                                         </div>
                                     ))}
                                     <button onClick={() => {
@@ -267,10 +283,7 @@ export function HomepageEditor() {
                                         <div key={i} className="p-4 rounded-lg bg-gray-50 space-y-3">
                                             <div className="flex justify-between">
                                                 <span className="text-xs font-medium text-gray-500">Testimonial {i + 1}</span>
-                                                <button onClick={() => {
-                                                    const items = (sectionData.items || []).filter((_: any, j: number) => j !== i);
-                                                    updateField('testimonials', 'items', items);
-                                                }} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => setDeleteItemTarget({ section: 'testimonials', index: i, label: item.name || `Testimonial ${i + 1}` })} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                                             </div>
                                             <textarea className="bs-input !min-h-[60px]" value={item.text || ''} onChange={(e) => {
                                                 const items = [...(sectionData.items || [])];
@@ -311,10 +324,7 @@ export function HomepageEditor() {
                                         <div key={i} className="p-4 rounded-lg bg-gray-50 space-y-3">
                                             <div className="flex justify-between">
                                                 <span className="text-xs font-medium text-gray-500">Article {i + 1}</span>
-                                                <button onClick={() => {
-                                                    const items = (sectionData.items || []).filter((_: any, j: number) => j !== i);
-                                                    updateField('articles', 'items', items);
-                                                }} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => setDeleteItemTarget({ section: 'articles', index: i, label: item.title || `Article ${i + 1}` })} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                                             </div>
                                             <input className="bs-input" value={item.title || ''} onChange={(e) => {
                                                 const items = [...(sectionData.items || [])];
@@ -396,10 +406,7 @@ export function HomepageEditor() {
                                         <div key={i} className="p-4 rounded-lg bg-gray-50 space-y-2">
                                             <div className="flex justify-between">
                                                 <span className="text-xs font-medium text-gray-500">FAQ {i + 1}</span>
-                                                <button onClick={() => {
-                                                    const items = (sectionData.items || []).filter((_: any, j: number) => j !== i);
-                                                    updateField('faq', 'items', items);
-                                                }} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => setDeleteItemTarget({ section: 'faq', index: i, label: item.question?.slice(0, 30) || `FAQ ${i + 1}` })} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                                             </div>
                                             <input className="bs-input" value={item.question || ''} onChange={(e) => {
                                                 const items = [...(sectionData.items || [])];

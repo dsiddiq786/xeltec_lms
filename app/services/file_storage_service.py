@@ -129,8 +129,15 @@ class FileStorageService:
                 
                 structure[level_dir_name][module_dir_name] = []
                 
-                for slide_idx, slide_title in enumerate(module_data.get("slide_titles", []), 1):
-                    slide_dir_name = f"Slide_{slide_idx}_{sanitize_name(slide_title)}"
+                slides_list = module_data.get("slides", module_data.get("slide_titles", []))
+                for slide_idx, slide_entry in enumerate(slides_list, 1):
+                    if isinstance(slide_entry, str):
+                        title = slide_entry
+                    elif isinstance(slide_entry, dict):
+                        title = slide_entry.get("title", f"Slide_{slide_idx}")
+                    else:
+                        title = f"Slide_{slide_idx}"
+                    slide_dir_name = f"Slide_{slide_idx}_{sanitize_name(title)}"
                     slide_dir = os.path.join(module_dir, slide_dir_name)
                     os.makedirs(slide_dir, exist_ok=True)
                     

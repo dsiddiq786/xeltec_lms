@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
 import api from '../../../lib/api';
 import type { Course, PaginatedResponse } from '../../../types';
 import { CourseCard } from '../../../components/shared/CourseCard';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export function ExploreCourses() {
-    const navigate = useNavigate();
+
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(1);
 

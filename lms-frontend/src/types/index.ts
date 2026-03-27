@@ -20,12 +20,15 @@ export interface Course {
     title: string;
     description?: string;
     base_price: string;
+    seat_price?: string;
     is_published: boolean;
     published_at?: string;
     created_at: string;
     thumbnail_url?: string;
     category?: string;
     difficulty_level?: string;
+    source_type?: string;
+    source_draft_id?: string;
     versions?: CourseVersion[];
 }
 

@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../../lib/api';
 import toast from 'react-hot-toast';
 import { ArrowLeft, UserPlus, Trash2, BookOpen, Users, Armchair, CheckCircle } from 'lucide-react';
+import { ConfirmDialog } from '../../../components/shared/ConfirmDialog';
 
 interface Assignment {
     employee_id: string;
@@ -32,6 +33,7 @@ export function CourseSeats() {
     const queryClient = useQueryClient();
     const [showAssign, setShowAssign] = useState(false);
     const [assignEmail, setAssignEmail] = useState('');
+    const [unassignTarget, setUnassignTarget] = useState<{ userId: string; name: string } | null>(null);
 
     const { data, isLoading } = useQuery<PurchaseDetail>({
         queryKey: ['biz-course-assignments', courseId],
@@ -57,10 +59,15 @@ export function CourseSeats() {
 
     const unassignMutation = useMutation({
         mutationFn: async (employeeUserId: string) => {
-            await api.delete(`/businesses/my/courses/${courseId}/assign/${employeeUserId}`);
+            const { data } = await api.delete(`/businesses/my/courses/${courseId}/assign/${employeeUserId}`);
+            return data;
         },
-        onSuccess: () => {
-            toast.success('Employee unassigned');
+        onSuccess: (data: any) => {
+            if (data?.seat_returned) {
+                toast.success('Employee unassigned — seat returned to your quota');
+            } else {
+                toast.success('Employee unassigned — seat consumed (course was already started)');
+            }
             queryClient.invalidateQueries({ queryKey: ['biz-course-assignments', courseId] });
         },
         onError: (err: any) => toast.error(err?.response?.data?.message || 'Failed to unassign'),
@@ -86,6 +93,15 @@ export function CourseSeats() {
 
     return (
         <div>
+            <ConfirmDialog
+                open={!!unassignTarget}
+                title="Unassign Employee?"
+                message={`Are you sure you want to unassign "${unassignTarget?.name || ''}" from this course?`}
+                confirmLabel="Unassign"
+                variant="warning"
+                onConfirm={() => { if (unassignTarget) unassignMutation.mutate(unassignTarget.userId); setUnassignTarget(null); }}
+                onCancel={() => setUnassignTarget(null)}
+            />
             <Link to="/business/manage-courses" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 mb-4">
                 <ArrowLeft className="w-4 h-4" /> Back to Manage Courses
             </Link>
@@ -213,7 +229,7 @@ export function CourseSeats() {
                                             </td>
                                             <td className="px-5 py-3 text-right">
                                                 <button
-                                                    onClick={() => { if (window.confirm('Unassign this employee?')) unassignMutation.mutate(a.user_id); }}
+                                                    onClick={() => setUnassignTarget({ userId: a.user_id, name: a.email || 'this employee' })}
                                                     className="text-red-400 hover:text-red-600"
                                                     title="Unassign"
                                                 >

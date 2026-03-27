@@ -10,6 +10,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError as PydanticValidationError
 
+from bson import ObjectId
 from app.schemas.request_schema import CourseGenerationRequest
 from app.schemas.course_schema import CourseDocument
 from app.schemas.job_schema import (
@@ -193,6 +194,73 @@ async def get_job_stats() -> dict:
         "queue": queue_stats,
         "redis_healthy": await queue.health_check()
     }
+
+
+# =============================================================================
+# Delete / Retry Endpoints
+# =============================================================================
+
+@router.delete(
+    "/jobs/{job_id}",
+    summary="Delete a job",
+    description="Delete a generation job and its draft content."
+)
+async def delete_job(job_id: str):
+    """Delete a job by ID."""
+    job_repo = JobRepository()
+    job = job_repo.get_by_id(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": f"Job '{job_id}' not found"})
+
+    # Delete associated draft
+    try:
+        from app.db.draft_repository import DraftRepository
+        DraftRepository().delete_draft(job_id)
+    except Exception:
+        pass
+
+    # Delete the job itself
+    job_repo.collection.delete_one({"_id": ObjectId(job_id)})
+    logger.info(f"Deleted job {job_id}")
+    return {"status": "deleted", "job_id": job_id}
+
+
+@router.post(
+    "/jobs/{job_id}/retry",
+    response_model=JobCreateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Retry a failed job",
+    description="Re-queue a failed job for processing."
+)
+async def retry_job(job_id: str) -> JobCreateResponse:
+    """Retry a failed or completed job."""
+    job_repo = JobRepository()
+    job = job_repo.get_by_id(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found", "message": f"Job '{job_id}' not found"})
+
+    if job.status not in (JobStatus.FAILED, JobStatus.COMPLETED):
+        raise HTTPException(status_code=400, detail={"error": "invalid_state", "message": f"Job is {job.status}, can only retry failed/completed jobs"})
+
+    # Reset job state
+    job_repo.collection.update_one(
+        {"_id": ObjectId(job_id)},
+        {"$set": {
+            "status": JobStatus.QUEUED.value,
+            "error_message": None,
+            "started_at": None,
+            "completed_at": None,
+            "course_id": None,
+            "progress": JobProgress(current_step="Queued (retry)", slides_total=job.progress.slides_total).model_dump(),
+        }, "$inc": {"retry_count": 1}}
+    )
+
+    queue = get_queue()
+    queue_length = await queue.enqueue(job_id)
+    job_repo.mark_queued(job_id)
+    logger.info(f"Retried job {job_id}, queue position: {queue_length}")
+
+    return JobCreateResponse(job_id=job_id, status=JobStatus.QUEUED, message="Job re-queued for processing", queue_position=queue_length)
 
 
 # =============================================================================

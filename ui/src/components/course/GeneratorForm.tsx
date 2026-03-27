@@ -1,8 +1,8 @@
 
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { api, CourseDocument } from '@/api/client';
-import { JobStatusResponse, JobStatus } from '@/api/client'; // Assuming types exist or recreate
+import { useMutation } from '@tanstack/react-query';
+import { api } from '@/api/client';
+
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,8 +11,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'; // Use shadcn accordion
-import { Progress } from '@/components/ui/progress';
-import { Wand2, Loader2, CheckCircle, AlertCircle, Settings2 } from 'lucide-react';
+
+import { Wand2, Loader2, Settings2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface GeneratorFormProps {
@@ -36,8 +36,26 @@ export function GeneratorForm({ onJobStarted }: GeneratorFormProps) {
     const [moduleNamesText, setModuleNamesText] = useState('');
     const [introSlides, setIntroSlides] = useState(false);
 
+    const totalSlides = (levels || 1) * (modulesPerLevel || 1) * (slidesPerModule || 1);
+    const durationNum = parseInt(duration) || 30;
+    const rawSlideDuration = Math.round((durationNum * 60) / totalSlides);
+    const slideDurationSec = Math.max(30, Math.min(600, rawSlideDuration));
+    const slideDurationValid = rawSlideDuration >= 30 && rawSlideDuration <= 600;
+
+    const [submitError, setSubmitError] = useState<string | null>(null);
+
     const createJobMutation = useMutation({
         mutationFn: async () => {
+            setSubmitError(null);
+
+            const rawSlideDuration = Math.round((parseInt(duration) * 60) / totalSlides);
+            if (rawSlideDuration < 30) {
+                throw new Error(`Per-slide duration is too short (${rawSlideDuration}s). Reduce the number of slides or increase the total duration.`);
+            }
+            if (rawSlideDuration > 600) {
+                throw new Error(`Per-slide duration is too long (${rawSlideDuration}s). Add more slides or reduce the total duration.`);
+            }
+
             const moduleList = useModuleNames
                 ? moduleNamesText.split('\n').map(s => s.trim()).filter(Boolean)
                 : undefined;
@@ -45,14 +63,12 @@ export function GeneratorForm({ onJobStarted }: GeneratorFormProps) {
             const payload = {
                 course_title: title,
                 category: topic,
-                course_level: difficulty, // Now a string label
+                course_level: difficulty,
                 target_course_duration_minutes: parseInt(duration),
-                target_slide_duration_sec: 90, // default
+                target_slide_duration_sec: rawSlideDuration,
                 levels_count: levels,
                 modules_per_level: modulesPerLevel,
                 slides_per_module: slidesPerModule,
-
-                // New fields
                 module_names: moduleList,
                 include_standard_intro_slides: introSlides
             };
@@ -63,9 +79,16 @@ export function GeneratorForm({ onJobStarted }: GeneratorFormProps) {
         onSuccess: (data) => {
             onJobStarted(data.job_id);
         },
-        onError: (error) => {
+        onError: (error: any) => {
             console.error("Job creation failed:", error);
-            // Toast error here?
+            const detail = error?.response?.data?.detail;
+            if (detail?.message) {
+                setSubmitError(detail.message);
+            } else if (error?.message) {
+                setSubmitError(error.message);
+            } else {
+                setSubmitError("Failed to create course generation job. Please try again.");
+            }
         }
     });
 
@@ -133,9 +156,16 @@ export function GeneratorForm({ onJobStarted }: GeneratorFormProps) {
                                 onChange={(e) => setDuration(e.target.value)}
                             />
                             <span className="text-sm text-muted-foreground whitespace-nowrap">
-                                Est. {(levels * modulesPerLevel * slidesPerModule)} slides
+                                {totalSlides} slides &middot; ~{slideDurationSec}s each
                             </span>
                         </div>
+                        {!slideDurationValid && (
+                            <p className="text-xs text-destructive">
+                                {slideDurationSec <= 30
+                                    ? "Per-slide duration too short. Reduce slides or increase duration."
+                                    : "Per-slide duration too long. Add more slides or reduce duration."}
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -217,10 +247,16 @@ export function GeneratorForm({ onJobStarted }: GeneratorFormProps) {
                     </AccordionItem>
                 </Accordion>
 
+                {submitError && (
+                    <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-md p-3 text-sm">
+                        {submitError}
+                    </div>
+                )}
+
                 <Button
                     className="w-full text-lg h-12 mt-4"
                     onClick={() => createJobMutation.mutate()}
-                    disabled={createJobMutation.isPending || !title || !topic}
+                    disabled={createJobMutation.isPending || !title || !topic || !slideDurationValid}
                 >
                     {createJobMutation.isPending ? (
                         <>

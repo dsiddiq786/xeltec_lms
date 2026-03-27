@@ -12,64 +12,88 @@ import { LearnerLayout } from './components/layout/LearnerLayout';
 import { PublicLayout } from './components/layout/PublicLayout';
 import { BusinessLayout } from './components/layout/BusinessLayout';
 
+/**
+ * Wrapper around dynamic import() that auto-reloads on chunk-load failure.
+ * After a new deploy the hashed filenames change; browsers with a stale
+ * index.html will request the old chunk and get a 404. This retries once
+ * via a full page reload so the user gets the fresh index.html.
+ */
+function retryImport<T>(factory: () => Promise<T>): Promise<T> {
+    return factory().catch((err) => {
+        const key = 'chunk_reload';
+        const alreadyReloaded = sessionStorage.getItem(key);
+        if (!alreadyReloaded) {
+            sessionStorage.setItem(key, '1');
+            window.location.reload();
+            return new Promise<T>(() => {}); // never resolves; page is reloading
+        }
+        sessionStorage.removeItem(key);
+        throw err;
+    });
+}
+
 // ── Auth pages (lazy) ──
-const LoginPage = lazy(() => import('./pages/auth/LoginPage').then((m) => ({ default: m.LoginPage })));
-const RegisterPage = lazy(() => import('./features/auth/pages/RegisterPage').then((m) => ({ default: m.RegisterPage })));
-const AdminLoginPage = lazy(() => import('./features/auth/pages/AdminLoginPage').then((m) => ({ default: m.AdminLoginPage })));
-const ForgotPasswordPage = lazy(() => import('./features/auth/pages/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage })));
-const ResetPasswordPage = lazy(() => import('./features/auth/pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })));
-const InviteAcceptPage = lazy(() => import('./features/auth/pages/InviteAcceptPage').then((m) => ({ default: m.InviteAcceptPage })));
-const VerifyEmailPage = lazy(() => import('./features/auth/pages/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage })));
-const CheckEmailPage = lazy(() => import('./features/auth/pages/CheckEmailPage').then((m) => ({ default: m.CheckEmailPage })));
-const JoinCompanyPage = lazy(() => import('./features/auth/pages/JoinCompanyPage').then((m) => ({ default: m.JoinCompanyPage })));
-const BusinessRegistrationPage = lazy(() => import('./features/kyc/pages/BusinessRegistrationPage').then((m) => ({ default: m.BusinessRegistrationPage })));
+const LoginPage = lazy(() => retryImport(() => import('./pages/auth/LoginPage').then((m) => ({ default: m.LoginPage }))));
+const RegisterPage = lazy(() => retryImport(() => import('./features/auth/pages/RegisterPage').then((m) => ({ default: m.RegisterPage }))));
+
+const ForgotPasswordPage = lazy(() => retryImport(() => import('./features/auth/pages/ForgotPasswordPage').then((m) => ({ default: m.ForgotPasswordPage }))));
+const ResetPasswordPage = lazy(() => retryImport(() => import('./features/auth/pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage }))));
+const InviteAcceptPage = lazy(() => retryImport(() => import('./features/auth/pages/InviteAcceptPage').then((m) => ({ default: m.InviteAcceptPage }))));
+const VerifyEmailPage = lazy(() => retryImport(() => import('./features/auth/pages/VerifyEmailPage').then((m) => ({ default: m.VerifyEmailPage }))));
+const CheckEmailPage = lazy(() => retryImport(() => import('./features/auth/pages/CheckEmailPage').then((m) => ({ default: m.CheckEmailPage }))));
+const JoinCompanyPage = lazy(() => retryImport(() => import('./features/auth/pages/JoinCompanyPage').then((m) => ({ default: m.JoinCompanyPage }))));
+const BusinessRegistrationPage = lazy(() => retryImport(() => import('./features/kyc/pages/BusinessRegistrationPage').then((m) => ({ default: m.BusinessRegistrationPage }))));
 
 // ── Public pages (lazy) ──
-const HomePage = lazy(() => import('./pages/public/HomePage').then((m) => ({ default: m.HomePage })));
-const CoursesPage = lazy(() => import('./pages/public/CoursesPage').then((m) => ({ default: m.CoursesPage })));
-const CourseDetailPage = lazy(() => import('./pages/public/CourseDetailPage').then((m) => ({ default: m.CourseDetailPage })));
+const HomePage = lazy(() => retryImport(() => import('./pages/public/HomePage').then((m) => ({ default: m.HomePage }))));
+const CoursesPage = lazy(() => retryImport(() => import('./pages/public/CoursesPage').then((m) => ({ default: m.CoursesPage }))));
+const CourseDetailPage = lazy(() => retryImport(() => import('./pages/public/CourseDetailPage').then((m) => ({ default: m.CourseDetailPage }))));
 
 // ── Learner pages (lazy) ──
-const LearnerDashboard = lazy(() => import('./pages/learner/LearnerDashboard').then((m) => ({ default: m.LearnerDashboard })));
-const CoursePlayer = lazy(() => import('./pages/learner/CoursePlayer').then((m) => ({ default: m.CoursePlayer })));
-const CertificatesPage = lazy(() => import('./pages/learner/CertificatesPage').then((m) => ({ default: m.CertificatesPage })));
-const ProfilePage = lazy(() => import('./pages/learner/ProfilePage').then((m) => ({ default: m.ProfilePage })));
-const CatalogPage = lazy(() => import('./pages/learner/CatalogPage').then((m) => ({ default: m.CatalogPage })));
+const LearnerDashboard = lazy(() => retryImport(() => import('./pages/learner/LearnerDashboard').then((m) => ({ default: m.LearnerDashboard }))));
+const CoursePlayer = lazy(() => retryImport(() => import('./pages/learner/CoursePlayer').then((m) => ({ default: m.CoursePlayer }))));
+const CertificatesPage = lazy(() => retryImport(() => import('./pages/learner/CertificatesPage').then((m) => ({ default: m.CertificatesPage }))));
+const ProfilePage = lazy(() => retryImport(() => import('./pages/learner/ProfilePage').then((m) => ({ default: m.ProfilePage }))));
+const CatalogPage = lazy(() => retryImport(() => import('./pages/learner/CatalogPage').then((m) => ({ default: m.CatalogPage }))));
 
 // ── Business pages (lazy) ──
-const BusinessDashboard = lazy(() => import('./features/business/pages/BusinessDashboard').then((m) => ({ default: m.BusinessDashboard })));
-const ExploreCourses = lazy(() => import('./features/business/pages/ExploreCourses').then((m) => ({ default: m.ExploreCourses })));
-const ManageCourses = lazy(() => import('./features/business/pages/ManageCourses').then((m) => ({ default: m.ManageCourses })));
-const CourseSeats = lazy(() => import('./features/business/pages/CourseSeats').then((m) => ({ default: m.CourseSeats })));
-const SubscriptionManagement = lazy(() => import('./features/business/pages/SubscriptionManagement').then((m) => ({ default: m.SubscriptionManagement })));
-const BizEmployeeManagement = lazy(() => import('./features/business/pages/EmployeeManagement').then((m) => ({ default: m.EmployeeManagement })));
-const KycFormPage = lazy(() => import('./features/kyc/pages/KycFormPage').then((m) => ({ default: m.KycFormPage })));
+const BusinessDashboard = lazy(() => retryImport(() => import('./features/business/pages/BusinessDashboard').then((m) => ({ default: m.BusinessDashboard }))));
+const ExploreCourses = lazy(() => retryImport(() => import('./features/business/pages/ExploreCourses').then((m) => ({ default: m.ExploreCourses }))));
+const ManageCourses = lazy(() => retryImport(() => import('./features/business/pages/ManageCourses').then((m) => ({ default: m.ManageCourses }))));
+const CourseSeats = lazy(() => retryImport(() => import('./features/business/pages/CourseSeats').then((m) => ({ default: m.CourseSeats }))));
+const SubscriptionManagement = lazy(() => retryImport(() => import('./features/business/pages/SubscriptionManagement').then((m) => ({ default: m.SubscriptionManagement }))));
+const BizEmployeeManagement = lazy(() => retryImport(() => import('./features/business/pages/EmployeeManagement').then((m) => ({ default: m.EmployeeManagement }))));
+const KycFormPage = lazy(() => retryImport(() => import('./features/kyc/pages/KycFormPage').then((m) => ({ default: m.KycFormPage }))));
 
 // ── Admin pages (lazy) ──
-const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
-const CourseManagement = lazy(() => import('./pages/admin/CourseManagement').then((m) => ({ default: m.CourseManagement })));
-const BusinessManagement = lazy(() => import('./pages/admin/BusinessManagement').then((m) => ({ default: m.BusinessManagement })));
-const UserManagement = lazy(() => import('./pages/admin/UserManagement').then((m) => ({ default: m.UserManagement })));
-const EmployeeManagement = lazy(() => import('./pages/admin/EmployeeManagement').then((m) => ({ default: m.EmployeeManagement })));
-const KYCReview = lazy(() => import('./pages/admin/KYCReview').then((m) => ({ default: m.KYCReview })));
-const TransactionList = lazy(() => import('./pages/admin/TransactionList').then((m) => ({ default: m.TransactionList })));
-const CertificateOversight = lazy(() => import('./pages/admin/CertificateOversight').then((m) => ({ default: m.CertificateOversight })));
-const ReportingDashboard = lazy(() => import('./pages/admin/ReportingDashboard').then((m) => ({ default: m.ReportingDashboard })));
-const SettingsPage = lazy(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })));
-const HomepageEditor = lazy(() => import('./pages/admin/HomepageEditor').then((m) => ({ default: m.HomepageEditor })));
-const PurchaseRequests = lazy(() => import('./pages/admin/PurchaseRequests').then((m) => ({ default: m.PurchaseRequests })));
+const AdminDashboard = lazy(() => retryImport(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard }))));
+const CourseManagement = lazy(() => retryImport(() => import('./pages/admin/CourseManagement').then((m) => ({ default: m.CourseManagement }))));
+const CoursePreviewerPage = lazy(() => retryImport(() => import('./pages/admin/CoursePreviewerPage').then((m) => ({ default: m.CoursePreviewerPage }))));
+const CourseEditorPage = lazy(() => retryImport(() => import('./pages/admin/CourseEditorPage').then((m) => ({ default: m.CourseEditorPage }))));
+const AdminProfilePage = lazy(() => retryImport(() => import('./pages/admin/AdminProfilePage').then((m) => ({ default: m.AdminProfilePage }))));
+const BusinessManagement = lazy(() => retryImport(() => import('./pages/admin/BusinessManagement').then((m) => ({ default: m.BusinessManagement }))));
+const UserManagement = lazy(() => retryImport(() => import('./pages/admin/UserManagement').then((m) => ({ default: m.UserManagement }))));
+const EmployeeManagement = lazy(() => retryImport(() => import('./pages/admin/EmployeeManagement').then((m) => ({ default: m.EmployeeManagement }))));
+const KYCReview = lazy(() => retryImport(() => import('./pages/admin/KYCReview').then((m) => ({ default: m.KYCReview }))));
+const TransactionList = lazy(() => retryImport(() => import('./pages/admin/TransactionList').then((m) => ({ default: m.TransactionList }))));
+const CertificateOversight = lazy(() => retryImport(() => import('./pages/admin/CertificateOversight').then((m) => ({ default: m.CertificateOversight }))));
+const ReportingDashboard = lazy(() => retryImport(() => import('./pages/admin/ReportingDashboard').then((m) => ({ default: m.ReportingDashboard }))));
+const SettingsPage = lazy(() => retryImport(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage }))));
+const HomepageEditor = lazy(() => retryImport(() => import('./pages/admin/HomepageEditor').then((m) => ({ default: m.HomepageEditor }))));
+const PurchaseRequests = lazy(() => retryImport(() => import('./pages/admin/PurchaseRequests').then((m) => ({ default: m.PurchaseRequests }))));
 
 // ── AI Generator (lazy) ──
-const DraftListPage = lazy(() => import('./features/ai-generator/pages/DraftListPage').then((m) => ({ default: m.DraftListPage })));
-const GeneratorPage = lazy(() => import('./features/ai-generator/pages/GeneratorPage').then((m) => ({ default: m.GeneratorPage })));
-const DraftEditorPage = lazy(() => import('./features/ai-generator/pages/DraftEditorPage').then((m) => ({ default: m.DraftEditorPage })));
+const DraftListPage = lazy(() => retryImport(() => import('./features/ai-generator/pages/DraftListPage').then((m) => ({ default: m.DraftListPage }))));
+const GeneratorPage = lazy(() => retryImport(() => import('./features/ai-generator/pages/GeneratorPage').then((m) => ({ default: m.GeneratorPage }))));
+const DraftEditorPage = lazy(() => retryImport(() => import('./features/ai-generator/pages/DraftEditorPage').then((m) => ({ default: m.DraftEditorPage }))));
 
 // ── Payments (lazy) ──
-const CheckoutSuccessPage = lazy(() => import('./features/payments/pages/CheckoutSuccessPage').then((m) => ({ default: m.CheckoutSuccessPage })));
-const CheckoutCancelPage = lazy(() => import('./features/payments/pages/CheckoutCancelPage').then((m) => ({ default: m.CheckoutCancelPage })));
+const CheckoutSuccessPage = lazy(() => retryImport(() => import('./features/payments/pages/CheckoutSuccessPage').then((m) => ({ default: m.CheckoutSuccessPage }))));
+const CheckoutCancelPage = lazy(() => retryImport(() => import('./features/payments/pages/CheckoutCancelPage').then((m) => ({ default: m.CheckoutCancelPage }))));
 
 // ── Certificates (lazy) ──
-const VerifyCertificatePage = lazy(() => import('./features/certificates/pages/VerifyCertificatePage').then((m) => ({ default: m.VerifyCertificatePage })));
+const VerifyCertificatePage = lazy(() => retryImport(() => import('./features/certificates/pages/VerifyCertificatePage').then((m) => ({ default: m.VerifyCertificatePage }))));
+
 
 const queryClient = new QueryClient({
     defaultOptions: {
@@ -107,8 +131,6 @@ function App() {
                                 <Route path="/verify-email" element={<VerifyEmailPage />} />
                                 <Route path="/check-email" element={<CheckEmailPage />} />
                                 <Route path="/join" element={<JoinCompanyPage />} />
-                                <Route path="/admin/login" element={<AdminLoginPage />} />
-
                                 {/* ── Admin Portal ── */}
                                 <Route
                                     path="/admin"
@@ -120,6 +142,9 @@ function App() {
                                 >
                                     <Route index element={<AdminDashboard />} />
                                     <Route path="courses" element={<CourseManagement />} />
+                                    <Route path="courses/:courseId" element={<CoursePreviewerPage />} />
+                                    <Route path="courses/:courseId/edit" element={<CourseEditorPage />} />
+                                    <Route path="profile" element={<AdminProfilePage />} />
                                     <Route path="businesses" element={<BusinessManagement />} />
                                     <Route path="users" element={<UserManagement />} />
                                     <Route path="employees" element={<EmployeeManagement />} />

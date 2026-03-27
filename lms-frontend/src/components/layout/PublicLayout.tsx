@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../../contexts/AuthContext';
 import { Logo } from '../shared/Logo';
 import { AnimatedOutlet } from '../shared/PageTransition';
-import { MapPin, Mail, Phone, Menu, X, Facebook, Twitter, Instagram, Linkedin, Youtube } from 'lucide-react';
+import { Mail, Phone, Menu, X, Facebook, Twitter, Instagram, Linkedin, Youtube } from 'lucide-react';
 import api from '../../lib/api';
 
 const NAV_LINKS = [

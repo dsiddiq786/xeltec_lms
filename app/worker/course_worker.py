@@ -212,7 +212,8 @@ class JobProcessor:
             
             # Mark as processing
             if not self.job_repo.start_processing(self.job_id, self.worker_id, request.total_slides):
-                logger.warning(f"Could not start job {self.job_id}")
+                logger.warning(f"Could not start job {self.job_id} - marking as failed to prevent infinite retry")
+                self.job_repo.mark_failed(self.job_id, None, "Job could not be started (invalid state)")
                 return False
             
             # Start heartbeat
@@ -386,7 +387,8 @@ class JobProcessor:
         assessment_data = await self._generation_service.generate_assessment(
             course_content,
             pass_percentage=request.pass_percentage,
-            questions_per_level=3
+            questions_per_level=3,
+            course_prompt=request.course_prompt
         )
         
         try:
@@ -467,7 +469,10 @@ class JobProcessor:
                 for slide_idx, slide_data in enumerate(module_data["slides"]):
                     slide_index += 1
                     
-                    # Get the slide directory path
+                    # Skip media generation for quiz slides (no images/TTS needed)
+                    if slide_data.get("slide_type") == "quiz":
+                        continue
+                    
                     slide_dir = self.file_storage.get_slide_directory(
                         course_dir=self._course_dir,
                         level_order=level_data["level_order"],
@@ -478,12 +483,14 @@ class JobProcessor:
                         slide_title=slide_data.get("slide_title", f"Slide_{slide_idx + 1}")
                     )
                     
-                    # Create async task for this slide's media generation
                     task = self._generate_slide_media(
                         slide_data=slide_data,
                         slide_dir=slide_dir,
                         slide_index=slide_index,
-                        loop=loop
+                        loop=loop,
+                        image_prompt_prefix=request.image_prompt,
+                        tts_voice=request.tts_voice,
+                        tts_model=request.tts_model
                     )
                     media_tasks.append((level_data, module_data, slide_idx, task))
         
@@ -529,39 +536,34 @@ class JobProcessor:
         slide_data: dict,
         slide_dir: str,
         slide_index: int,
-        loop: asyncio.AbstractEventLoop
+        loop: asyncio.AbstractEventLoop,
+        image_prompt_prefix: Optional[str] = None,
+        tts_voice: Optional[str] = None,
+        tts_model: Optional[str] = None
     ) -> dict:
         """
         Generate image and TTS for a single slide using thread pool.
         
         Runs image and TTS generation concurrently in separate threads.
         Also saves slide content to disk.
-        
-        Args:
-            slide_data: Slide content dictionary
-            slide_dir: Path to slide's directory
-            slide_index: Slide number (for cost tracking labels)
-            loop: Event loop for executor submission
-            
-        Returns:
-            dict with image_path and voiceover_path
         """
         result = {"image_path": None, "voiceover_path": None}
         
-        # Save slide content to disk (quick, no API call needed)
         try:
             self.file_storage.save_slide_content(slide_dir, slide_data)
         except Exception as e:
             logger.warning(f"Failed to save slide content: {e}")
         
-        # Prepare paths
         image_path = self.file_storage.get_image_path(slide_dir)
         voiceover_path = self.file_storage.get_voiceover_path(slide_dir)
         
         visual_prompt = slide_data.get("visual_prompt", "")
         voiceover_script = slide_data.get("voiceover_script", "")
         
-        # Run image and TTS generation concurrently in thread pool
+        # Prepend master image prompt for visual consistency across slides
+        if image_prompt_prefix and visual_prompt:
+            visual_prompt = f"{image_prompt_prefix}. {visual_prompt}"
+        
         image_future = None
         tts_future = None
         
@@ -576,9 +578,10 @@ class JobProcessor:
         if voiceover_script:
             tts_future = loop.run_in_executor(
                 self._media_executor,
-                self.tts_service.generate_speech,
-                voiceover_script,
-                voiceover_path
+                lambda: self.tts_service.generate_speech(
+                    voiceover_script, voiceover_path,
+                    voice=tts_voice, model=tts_model
+                )
             )
         
         # Await both concurrently
@@ -642,12 +645,17 @@ class JobProcessor:
                 slides = [
                     Slide(
                         slide_title=s["slide_title"],
-                        slide_text=s["slide_text"],
-                        visual_prompt=s["visual_prompt"],
-                        voiceover_script=s["voiceover_script"],
-                        estimated_duration_sec=s["estimated_duration_sec"],
+                        slide_type=s.get("slide_type", "content"),
+                        slide_text=s.get("slide_text", ""),
+                        visual_prompt=s.get("visual_prompt", ""),
+                        voiceover_script=s.get("voiceover_script", ""),
+                        estimated_duration_sec=s.get("estimated_duration_sec", 30),
                         image_url=s.get("image_url"),
                         voiceover_audio_url=s.get("voiceover_audio_url"),
+                        quiz_question=s.get("quiz_question"),
+                        quiz_options=s.get("quiz_options"),
+                        quiz_correct_index=s.get("quiz_correct_index"),
+                        quiz_explanation=s.get("quiz_explanation"),
                     )
                     for s in module_data["slides"]
                 ]
@@ -827,9 +835,8 @@ class ConcurrentWorker:
                 await self.queue.complete(job_id)
             else:
                 self.jobs_failed += 1
-                # Check if should retry
                 job = JobRepository().get_by_id(job_id)
-                should_retry = job and job.retry_count < job.max_retries
+                should_retry = job and job.status != 'failed' and job.retry_count < job.max_retries
                 await self.queue.fail(job_id, requeue=should_retry)
                 
         except Exception as e:

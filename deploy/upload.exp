@@ -1,0 +1,38 @@
+#!/usr/bin/expect
+
+set timeout 600
+set host [lindex $argv 0]
+set user [lindex $argv 1]
+set password [lindex $argv 2]
+set local_file [lindex $argv 3]
+set remote_dest [lindex $argv 4]
+
+# Function to handle SCP
+proc do_scp {host user password local remote} {
+    spawn scp -o StrictHostKeyChecking=no $local $user@$host:$remote
+    expect {
+        "password:" { send "$password\r"; exp_continue }
+        eof
+    }
+}
+
+# 1. Upload Project Tarball
+puts "Uploading project tarball..."
+do_scp $host $user $password $local_file $remote_dest
+
+# 2. Upload Setup Script
+puts "Uploading setup script..."
+do_scp $host $user $password "deploy/remote_setup.sh" "/tmp/remote_setup.sh"
+
+# 3. Execute Setup
+puts "Executing setup on remote server..."
+spawn ssh -o StrictHostKeyChecking=no $user@$host "chmod +x /tmp/remote_setup.sh && /tmp/remote_setup.sh"
+expect {
+    "password:" { send "$password\r" }
+    timeout { puts "Connection timed out"; exit 1 }
+}
+# Keep interaction alive for long running commands
+expect {
+    timeout { exp_continue }
+    eof
+}

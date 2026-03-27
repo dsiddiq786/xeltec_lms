@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import api from '../../../lib/api';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Sparkles, BookOpen, Clock, Target, Layers, List } from 'lucide-react';
+import { ArrowLeft, Sparkles, BookOpen, Clock, Target, Layers, List, Mic, Palette, ChevronDown, ChevronRight } from 'lucide-react';
 
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced', 'Expert'];
 const CATEGORIES = [
@@ -38,6 +38,31 @@ export function GeneratorPage() {
 
     const [useModuleNames, setUseModuleNames] = useState(false);
     const [moduleNamesText, setModuleNamesText] = useState('');
+    const [showPrompts, setShowPrompts] = useState(false);
+    const [coursePrompt, setCoursePrompt] = useState('');
+    const [imagePrompt, setImagePrompt] = useState('');
+    const [voiceoverPrompt, setVoiceoverPrompt] = useState('');
+    const [ttsVoice, setTtsVoice] = useState('alloy');
+    const [ttsModel, setTtsModel] = useState('tts-1');
+
+    const { data: siteSettings } = useQuery({
+        queryKey: ['site-settings'],
+        queryFn: async () => {
+            const { data } = await api.get('/site-settings');
+            return data as Record<string, any>;
+        },
+    });
+
+    useEffect(() => {
+        if (siteSettings?.ai_generation_settings) {
+            const ai = siteSettings.ai_generation_settings;
+            setCoursePrompt(ai.course_prompt || '');
+            setImagePrompt(ai.image_prompt || '');
+            setVoiceoverPrompt(ai.voiceover_prompt || '');
+            setTtsVoice(ai.default_tts_voice || 'alloy');
+            setTtsModel(ai.default_tts_model || 'tts-1');
+        }
+    }, [siteSettings]);
 
     const totalSlides = form.levels_count * form.modules_per_level * form.slides_per_module;
     const estimatedDuration = Math.round(totalSlides * form.target_slide_duration_sec / 60);
@@ -52,6 +77,11 @@ export function GeneratorPage() {
                 ...form,
                 total_slides: totalSlides,
                 module_names: moduleNames,
+                course_prompt: coursePrompt || undefined,
+                image_prompt: imagePrompt || undefined,
+                voiceover_prompt: voiceoverPrompt || undefined,
+                tts_voice: ttsVoice,
+                tts_model: ttsModel,
             });
             return data;
         },
@@ -246,6 +276,90 @@ export function GeneratorPage() {
                             </label>
                         </div>
                     </div>
+
+                    {/* AI Prompts & Voice Configuration */}
+                    <div className="bs-card p-6">
+                        <button
+                            type="button"
+                            onClick={() => setShowPrompts(!showPrompts)}
+                            className="w-full flex items-center justify-between"
+                        >
+                            <div className="flex items-center gap-2">
+                                <Palette className="w-4 h-4" style={{ color: 'var(--bs-teal)' }} />
+                                <h2 className="text-sm font-semibold text-gray-900">AI Prompts & Voice</h2>
+                                <span className="text-xs text-gray-400 ml-1">Override admin defaults for this course</span>
+                            </div>
+                            {showPrompts ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                        </button>
+                        <AnimatePresence>
+                            {showPrompts && (
+                                <motion.div
+                                    initial={{ opacity: 0, height: 0 }}
+                                    animate={{ opacity: 1, height: 'auto' }}
+                                    exit={{ opacity: 0, height: 0 }}
+                                    className="overflow-hidden"
+                                >
+                                    <div className="space-y-4 mt-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Content Prompt</label>
+                                            <p className="text-[11px] text-gray-400 mb-1.5">Instructions for course content tone, style, and domain focus</p>
+                                            <textarea
+                                                className="bs-input !h-20 resize-none text-sm"
+                                                value={coursePrompt}
+                                                onChange={(e) => setCoursePrompt(e.target.value)}
+                                                placeholder="e.g., Use UK English, focus on real-world compliance scenarios..."
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Image Style Prompt</label>
+                                            <p className="text-[11px] text-gray-400 mb-1.5">Prepended to every slide image for consistent visual style</p>
+                                            <textarea
+                                                className="bs-input !h-20 resize-none text-sm"
+                                                value={imagePrompt}
+                                                onChange={(e) => setImagePrompt(e.target.value)}
+                                                placeholder="e.g., Modern flat illustration, corporate blue palette, clean lines..."
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-600 mb-1">Voiceover Style</label>
+                                            <p className="text-[11px] text-gray-400 mb-1.5">Tone and style instructions for voiceover script generation</p>
+                                            <textarea
+                                                className="bs-input !h-16 resize-none text-sm"
+                                                value={voiceoverPrompt}
+                                                onChange={(e) => setVoiceoverPrompt(e.target.value)}
+                                                placeholder="e.g., Warm and encouraging, use brief pauses between sections..."
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-600 mb-1 flex items-center gap-1.5">
+                                                    <Mic className="w-3.5 h-3.5" /> TTS Voice
+                                                </label>
+                                                <select className="bs-input" value={ttsVoice} onChange={(e) => setTtsVoice(e.target.value)}>
+                                                    <option value="alloy">Alloy - Neutral, balanced</option>
+                                                    <option value="echo">Echo - Warm, conversational</option>
+                                                    <option value="fable">Fable - Expressive, storytelling</option>
+                                                    <option value="onyx">Onyx - Deep, authoritative</option>
+                                                    <option value="nova">Nova - Friendly, upbeat</option>
+                                                    <option value="shimmer">Shimmer - Clear, gentle</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-600 mb-1">TTS Model</label>
+                                                <select className="bs-input" value={ttsModel} onChange={(e) => setTtsModel(e.target.value)}>
+                                                    <option value="tts-1">TTS-1 - Standard quality</option>
+                                                    <option value="tts-1-hd">TTS-1-HD - High definition</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <p className="text-[11px] text-gray-400">
+                                            Values are pre-filled from admin defaults (Settings &rarr; AI Course Generation). Changes here apply to this course only.
+                                        </p>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </div>
                 </div>
 
                 {/* Sidebar summary */}
@@ -259,6 +373,7 @@ export function GeneratorPage() {
                             <div className="flex justify-between"><span className="text-gray-500">Pass Score</span><span className="font-semibold">{form.pass_percentage}%</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Audio</span><span className="font-semibold">{form.generate_audio ? 'Yes' : 'No'}</span></div>
                             <div className="flex justify-between"><span className="text-gray-500">Images</span><span className="font-semibold">{form.generate_images ? 'Yes' : 'No'}</span></div>
+                            <div className="flex justify-between"><span className="text-gray-500">Voice</span><span className="font-semibold capitalize">{ttsVoice}</span></div>
                             {useModuleNames && moduleNamesText.trim() && (
                                 <div className="flex justify-between"><span className="text-gray-500">Custom Modules</span><span className="font-semibold">{moduleNamesText.split('\n').filter(s => s.trim()).length}</span></div>
                             )}

@@ -100,11 +100,12 @@ class DraftRepository:
                 }
                 
                 for module_data in level_data.get("modules", []):
+                    outline_slides = module_data.get("slides", module_data.get("slide_titles", []))
                     module = {
                         "module_title": module_data["module_title"],
                         "module_order": module_data["module_order"],
-                        "slide_titles": module_data.get("slide_titles", []),
-                        "slides": []  # Will be populated as slides complete
+                        "outline_slides": outline_slides,
+                        "slides": []
                     }
                     level["modules"].append(module)
                 

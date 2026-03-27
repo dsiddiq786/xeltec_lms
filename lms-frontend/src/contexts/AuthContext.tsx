@@ -8,7 +8,6 @@ interface AuthContextType {
     isLoading: boolean;
     initialCheckDone: boolean;
     login: (email: string, password: string) => Promise<User>;
-    adminLogin: (email: string, password: string) => Promise<User>;
     register: (data: RegisterData) => Promise<{ user: User; requiresVerification: boolean }>;
     registerBusiness: (data: BusinessRegisterData) => Promise<{ user: User; requiresVerification: boolean }>;
     logout: () => Promise<void>;
@@ -63,12 +62,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return data.user;
     };
 
-    const adminLogin = async (email: string, password: string): Promise<User> => {
-        const { data } = await api.post('/auth/admin/login', { email, password });
-        setUser(data.user);
-        return data.user;
-    };
-
     const register = async (registerData: RegisterData) => {
         const { data } = await api.post('/auth/register', registerData);
         return { user: data.user, requiresVerification: true };
@@ -97,7 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 isLoading,
                 initialCheckDone,
                 login,
-                adminLogin,
                 register,
                 registerBusiness,
                 logout,

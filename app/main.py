@@ -140,14 +140,15 @@ app = FastAPI(
 # Middleware Configuration
 # =============================================================================
 
-# CORS middleware for frontend integration (when needed)
-# WHY CORS: Allows frontend apps on different domains to access API
+# CORS middleware — restricted to known frontend origins
+_cors_origins_raw = os.getenv("CORS_ORIGIN", "http://localhost:5173")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Restrict in production
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 

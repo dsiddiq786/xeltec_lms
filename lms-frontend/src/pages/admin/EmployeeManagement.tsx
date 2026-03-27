@@ -1,7 +1,20 @@
+import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
+import { DataTable, type Column, type FilterOption } from '../../components/shared/DataTable';
 import api from '../../lib/api';
 import { Users, Building2 } from 'lucide-react';
+
+const filters: FilterOption[] = [
+    {
+        key: 'status',
+        label: 'Status',
+        options: [
+            { value: 'ACTIVE', label: 'Active' },
+            { value: 'INVITED', label: 'Invited' },
+            { value: 'DEACTIVATED', label: 'Deactivated' },
+        ],
+    },
+];
 
 export function EmployeeManagement() {
     const { data: businesses, isLoading } = useQuery<any[]>({
@@ -20,6 +33,74 @@ export function EmployeeManagement() {
         })),
     );
 
+    const columns: Column<any>[] = useMemo(
+        () => [
+            {
+                key: 'user.email',
+                label: 'Employee',
+                sortable: true,
+                render: (emp) => (
+                    <div className="flex items-center gap-3">
+                        <div
+                            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+                            style={{ background: 'var(--bs-gray-100)', color: 'var(--bs-gray-600)' }}
+                        >
+                            {emp.user?.first_name?.[0] ||
+                                emp.user?.email?.[0]?.toUpperCase() ||
+                                '?'}
+                        </div>
+                        <div>
+                            <div className="text-sm font-medium text-gray-900">
+                                {emp.user?.first_name
+                                    ? `${emp.user.first_name} ${emp.user.last_name ?? ''}`.trim()
+                                    : '—'}
+                            </div>
+                            <div className="text-xs text-gray-400">{emp.user?.email}</div>
+                        </div>
+                    </div>
+                ),
+            },
+            {
+                key: 'business_name',
+                label: 'Business',
+                sortable: true,
+                render: (emp) => (
+                    <span className="text-sm text-gray-600">{emp.business_name}</span>
+                ),
+            },
+            {
+                key: 'status',
+                label: 'Status',
+                sortable: true,
+                render: (emp) => (
+                    <span
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                            emp.status === 'ACTIVE'
+                                ? 'bg-green-50 text-green-700'
+                                : emp.status === 'INVITED'
+                                  ? 'bg-blue-50 text-blue-700'
+                                  : 'bg-gray-100 text-gray-500'
+                        }`}
+                    >
+                        {emp.status}
+                    </span>
+                ),
+            },
+            {
+                key: 'created_at',
+                label: 'Joined',
+                sortable: true,
+                getValue: (emp) => new Date(emp.created_at).getTime(),
+                render: (emp) => (
+                    <span className="text-sm text-gray-500">
+                        {new Date(emp.created_at).toLocaleDateString()}
+                    </span>
+                ),
+            },
+        ],
+        [],
+    );
+
     return (
         <div>
             <div className="mb-6">
@@ -29,13 +110,36 @@ export function EmployeeManagement() {
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
                 {[
-                    { label: 'Total Employees', value: allEmployees.length, icon: Users, color: '#035A51' },
-                    { label: 'Active', value: allEmployees.filter((e) => e.status === 'ACTIVE').length, icon: Users, color: '#1565c0' },
-                    { label: 'Invited', value: allEmployees.filter((e) => e.status === 'INVITED').length, icon: Users, color: '#e65100' },
-                    { label: 'Businesses', value: businesses?.length || 0, icon: Building2, color: '#6a1b9a' },
+                    {
+                        label: 'Total Employees',
+                        value: allEmployees.length,
+                        icon: Users,
+                        color: '#035A51',
+                    },
+                    {
+                        label: 'Active',
+                        value: allEmployees.filter((e) => e.status === 'ACTIVE').length,
+                        icon: Users,
+                        color: '#1565c0',
+                    },
+                    {
+                        label: 'Invited',
+                        value: allEmployees.filter((e) => e.status === 'INVITED').length,
+                        icon: Users,
+                        color: '#e65100',
+                    },
+                    {
+                        label: 'Businesses',
+                        value: businesses?.length || 0,
+                        icon: Building2,
+                        color: '#6a1b9a',
+                    },
                 ].map((stat) => (
                     <div key={stat.label} className="bs-card p-4 flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: `${stat.color}15` }}>
+                        <div
+                            className="w-10 h-10 rounded-lg flex items-center justify-center"
+                            style={{ background: `${stat.color}15` }}
+                        >
                             <stat.icon className="w-5 h-5" style={{ color: stat.color }} />
                         </div>
                         <div>
@@ -46,70 +150,16 @@ export function EmployeeManagement() {
                 ))}
             </div>
 
-            <div className="bs-card overflow-hidden">
-                <table className="w-full">
-                    <thead>
-                        <tr style={{ background: 'var(--bs-gray-50)' }}>
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Employee</th>
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Business</th>
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Status</th>
-                            <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider px-5 py-3">Joined</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {isLoading ? (
-                            Array.from({ length: 4 }).map((_, i) => (
-                                <tr key={i} style={{ borderTop: '1px solid var(--bs-gray-100)' }}>
-                                    <td className="px-5 py-4"><div className="w-48 h-5 bg-gray-100 rounded animate-pulse" /></td>
-                                    <td className="px-5 py-4"><div className="w-32 h-5 bg-gray-100 rounded animate-pulse" /></td>
-                                    <td className="px-5 py-4"><div className="w-20 h-5 bg-gray-100 rounded-full animate-pulse" /></td>
-                                    <td className="px-5 py-4"><div className="w-24 h-5 bg-gray-100 rounded animate-pulse" /></td>
-                                </tr>
-                            ))
-                        ) : allEmployees.map((emp: any, index: number) => (
-                            <motion.tr
-                                key={emp.id}
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ delay: index * 0.02 }}
-                                className="hover:bg-gray-50/50 transition-colors"
-                                style={{ borderTop: '1px solid var(--bs-gray-100)' }}
-                            >
-                                <td className="px-5 py-4">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: 'var(--bs-gray-100)', color: 'var(--bs-gray-600)' }}>
-                                            {emp.user?.first_name?.[0] || emp.user?.email?.[0]?.toUpperCase() || '?'}
-                                        </div>
-                                        <div>
-                                            <div className="text-sm font-medium text-gray-900">
-                                                {emp.user?.first_name ? `${emp.user.first_name} ${emp.user.last_name}` : '—'}
-                                            </div>
-                                            <div className="text-xs text-gray-400">{emp.user?.email}</div>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td className="px-5 py-4">
-                                    <span className="text-sm text-gray-600">{emp.business_name}</span>
-                                </td>
-                                <td className="px-5 py-4">
-                                    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                                        emp.status === 'ACTIVE' ? 'bg-green-50 text-green-700' :
-                                        emp.status === 'INVITED' ? 'bg-blue-50 text-blue-700' :
-                                        'bg-gray-100 text-gray-500'
-                                    }`}>{emp.status}</span>
-                                </td>
-                                <td className="px-5 py-4 text-sm text-gray-500">
-                                    {new Date(emp.created_at).toLocaleDateString()}
-                                </td>
-                            </motion.tr>
-                        ))}
-                    </tbody>
-                </table>
-
-                {!isLoading && allEmployees.length === 0 && (
-                    <div className="text-center py-16 text-gray-500">No employees found.</div>
-                )}
-            </div>
+            <DataTable
+                data={allEmployees}
+                columns={columns}
+                isLoading={isLoading}
+                searchKeys={['user.email', 'user.first_name', 'business_name']}
+                searchPlaceholder="Search employees..."
+                filters={filters}
+                pageSize={10}
+                emptyMessage="No employees found."
+            />
         </div>
     );
 }
